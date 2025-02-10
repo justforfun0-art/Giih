@@ -1,0 +1,32 @@
+<resources>
+    <string name="app_name">gigwork</string>
+    <?xml version="1.0" encoding="utf-8"?>
+
+        <!-- Error Titles -->
+        <string name="error_title_network">Network Error</string>
+        <string name="error_title_database">Database Error</string>
+        <string name="error_title_validation">Validation Error</string>
+        <string name="error_title_security">Security Error</string>
+        <string name="error_title_business">Error</string>
+        <string name="error_title_unexpected">Unexpected Error</string>
+
+        <!-- Network Errors -->
+        <string name="error_no_internet">No internet connection available. Please check your connection and try again.</string>
+        <string name="error_unauthorized">Your session has expired. Please login again.</string>
+        <string name="error_forbidden">You don\'t have permission to perform this action.</string>
+        <string name="error_not_found">The requested resource was not found.</string>
+        <string name="error_server">Server error occurred. Please try again later.</string>
+
+        <!-- Database Errors -->
+        <string name="error_saving_data">Failed to save data. Please try again.</string>
+        <string name="error_loading_data">Failed to load data. Please try again.</string>
+        <string name="error_deleting_data">Failed to delete data. Please try again.</string>
+        <string name="error_database_generic">A database error occurred. Please try again.</string>
+
+        <!-- Security Errors -->
+        <string name="error_authentication">Please login to continue.</string>
+        <string name="error_authorization">You don\'t have permission for this action.</string>
+
+        <!-- Generic Errors -->
+        <string name="error_unexpected">An unexpected error occurred. Please try again.</string>
+</resources>
