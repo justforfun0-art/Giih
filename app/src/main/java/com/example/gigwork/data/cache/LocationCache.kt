@@ -8,18 +8,21 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.util.concurrent.TimeUnit
 
+// Entity
 @Entity(tableName = "location_cache")
 data class LocationCacheEntity(
-    @PrimaryKey val key: String,
+    @PrimaryKey
+    @ColumnInfo(name = "cache_key")
+    val key: String,
     val data: String,
     val timestamp: Long
 )
 
+// DAO
 @Dao
 interface LocationCacheDao {
-    @Query("SELECT * FROM location_cache WHERE key = :key")
+    @Query("SELECT * FROM location_cache WHERE cache_key = :key")
     suspend fun get(key: String): LocationCacheEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -36,8 +39,12 @@ interface LocationCacheDao {
 
     @Query("SELECT * FROM location_cache ORDER BY timestamp DESC")
     fun getAllFlow(): Flow<List<LocationCacheEntity>>
+
+    @Query("SELECT MAX(timestamp) FROM location_cache")
+    suspend fun getLastUpdateTime(): Long?
 }
 
+// Database
 @Database(entities = [LocationCacheEntity::class], version = 1, exportSchema = false)
 abstract class LocationDatabase : RoomDatabase() {
     abstract fun locationCacheDao(): LocationCacheDao
@@ -47,6 +54,7 @@ abstract class LocationDatabase : RoomDatabase() {
     }
 }
 
+// Cache Implementation
 @Singleton
 class LocationCache @Inject constructor(
     @ApplicationContext context: Context
@@ -66,29 +74,19 @@ class LocationCache @Inject constructor(
         private const val TAG = "LocationCache"
     }
 
-    /**
-     * Get cached data for a key
-     */
     suspend fun get(key: String): List<String>? {
-        try {
+        return try {
             val cached = dao.get(key) ?: return null
             if (isCacheValid(cached.timestamp)) {
-                return cached.data.split(",")
+                cached.data.split(",")
+            } else {
+                null
             }
-            return null
         } catch (e: Exception) {
-            throw AppError.DatabaseError(
-                message = "Failed to read from cache: ${e.message}",
-                cause = e,
-                entity = "location_cache",
-                operation = "read"
-            )
+            handleDatabaseError(e, "Failed to read from cache", "read")
         }
     }
 
-    /**
-     * Store data in cache
-     */
     suspend fun put(key: String, data: List<String>, duration: Long = DEFAULT_CACHE_DURATION) {
         try {
             dao.insert(
@@ -100,78 +98,41 @@ class LocationCache @Inject constructor(
             )
             cleanOldCache()
         } catch (e: Exception) {
-            throw AppError.DatabaseError(
-                message = "Failed to write to cache: ${e.message}",
-                cause = e,
-                entity = "location_cache",
-                operation = "write"
-            )
+            handleDatabaseError(e, "Failed to write to cache", "write")
         }
     }
 
-    /**
-     * Check if cached data is still valid
-     */
     private fun isCacheValid(timestamp: Long, duration: Long = DEFAULT_CACHE_DURATION): Boolean {
         return System.currentTimeMillis() - timestamp < duration
     }
 
-    /**
-     * Clean old cached data
-     */
     private suspend fun cleanOldCache() {
         val threshold = System.currentTimeMillis() - DEFAULT_CACHE_DURATION
         try {
             dao.deleteOld(threshold)
         } catch (e: Exception) {
-            throw AppError.DatabaseError(
-                message = "Failed to clean cache: ${e.message}",
-                cause = e,
-                entity = "location_cache",
-                operation = "clean"
-            )
+            handleDatabaseError(e, "Failed to clean cache", "clean")
         }
     }
 
-    /**
-     * Clear all cached data
-     */
     suspend fun clear() {
         try {
             dao.clearAll()
         } catch (e: Exception) {
-            throw AppError.DatabaseError(
-                message = "Failed to clear cache: ${e.message}",
-                cause = e,
-                entity = "location_cache",
-                operation = "clear"
-            )
+            handleDatabaseError(e, "Failed to clear cache", "clear")
         }
     }
 
-    /**
-     * Get cache status as flow
-     */
     fun getCacheStatus(): Flow<CacheStatus> = flow {
         try {
             val count = dao.getCount()
+            val lastUpdated = dao.getLastUpdateTime() ?: 0L
             emit(CacheStatus(
                 itemCount = count,
-                lastUpdated = getLastUpdateTime()
+                lastUpdated = lastUpdated
             ))
         } catch (e: Exception) {
-            throw AppError.DatabaseError(
-                message = "Failed to get cache status: ${e.message}",
-                cause = e,
-                entity = "location_cache",
-                operation = "status"
-            )
-        }
-    }
-
-    private suspend fun getLastUpdateTime(): Long {
-        return dao.getAllFlow().collect { entities ->
-            entities.maxOfOrNull { it.timestamp } ?: 0L
+            handleDatabaseError(e, "Failed to get cache status", "status")
         }
     }
 
@@ -179,4 +140,17 @@ class LocationCache @Inject constructor(
         val itemCount: Int,
         val lastUpdated: Long
     )
+
+    private fun handleDatabaseError(e: Exception, message: String, operation: String): Nothing {
+        val error = when (e) {
+            is AppError -> e
+            else -> AppError.DatabaseError(
+                message = "$message: ${e.message}",
+                cause = e,
+                entity = "location_cache",
+                operation = operation
+            )
+        }
+        throw RuntimeException(error.message, error.cause)
+    }
 }

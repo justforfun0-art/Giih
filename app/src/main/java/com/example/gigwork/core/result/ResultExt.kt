@@ -1,4 +1,3 @@
-// core/result/ResultExt.kt
 package com.example.gigwork.core.result
 
 import com.example.gigwork.core.error.model.AppError
@@ -7,32 +6,35 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 
-fun <T> Flow<T>.asResult(): Flow<Result<T>> {
+fun <T> Flow<T>.asResult(): Flow<ApiResult<T>> {
     return this
-        .map<T, Result<T>> { Result.success(it) }
-        .onStart { emit(Result.loading()) }
-        .catch { emit(Result.error(it.toAppError())) }
+        .map<T, ApiResult<T>> { ApiResult.success(it) }
+        .onStart { emit(ApiResult.loading()) }
+        .catch { emit(ApiResult.error(it.toAppError())) }
 }
 
-suspend fun <T> Result<T>.suspendOnSuccess(
+
+
+suspend fun <T> ApiResult<T>.suspendOnSuccess(
     action: suspend (T) -> Unit
-): Result<T> {
-    if (this is Result.Success) {
+): ApiResult<T> {
+    if (this is ApiResult.Success) {
         action(data)
     }
     return this
 }
 
-suspend fun <T> Result<T>.suspendOnError(
+suspend fun <T> ApiResult<T>.suspendOnError(
     action: suspend (AppError) -> Unit
-): Result<T> {
-    if (this is Result.Error) {
+): ApiResult<T> {
+    if (this is ApiResult.Error) {
         action(error)
     }
     return this
 }
 
-// Extension to convert throwables to AppError
+
+
 fun Throwable.toAppError(): AppError {
     return when (this) {
         is AppError -> this

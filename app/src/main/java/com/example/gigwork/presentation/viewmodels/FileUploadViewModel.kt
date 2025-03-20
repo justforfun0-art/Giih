@@ -2,11 +2,14 @@ package com.example.gigwork.presentation.viewmodels
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.gigwork.core.error.handler.GlobalErrorHandler
 import com.example.gigwork.core.error.model.*
+import com.example.gigwork.core.error.model.AppError
+import com.example.gigwork.core.result.ApiResult
 import com.example.gigwork.domain.repository.FileRepository
 import com.example.gigwork.util.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,7 +19,10 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.io.InputStream
 import javax.inject.Inject
+import com.example.gigwork.core.error.model.AppError as CoreAppError
+import com.example.gigwork.presentation.base.AppError as BaseAppError
 
 data class FileUploadUiState(
     val isLoading: Boolean = false,
@@ -119,27 +125,21 @@ class FileUploadViewModel @Inject constructor(
             try {
                 val uri = uiState.value.selectedFileUri ?: throw ValidationException("No file selected")
 
-                if (!NetworkUtils.isNetworkAvailable(context)) {
+                val networkUtils = NetworkUtils(context)
+                if (!networkUtils.isNetworkAvailable()) {
                     throw NetworkException("No internet connection")
                 }
 
                 _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-                val inputStream = context.contentResolver.openInputStream(uri)
-                    ?: throw IOException("Cannot read file")
-
-                fileRepository.uploadFile(
-                    inputStream = inputStream,
-                    fileName = uiState.value.fileName ?: "unknown",
-                    mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream",
-                    onProgress = { progress ->
-                        _uiState.update { it.copy(progress = progress) }
-                    }
-                ).collect { result ->
-                    when (result) {
-                        is Result.Success -> handleUploadSuccess(result.data)
-                        is Result.Error -> handleError(result.error)
-                        is Result.Loading -> handleLoading()
+                fileRepository.uploadFile(uri).collect { apiResult ->
+                    when (apiResult) {
+                        is ApiResult.Success -> handleUploadSuccess(apiResult.data)
+                        is ApiResult.Error -> handleError(apiResult.error)
+                        is ApiResult.Loading -> {
+                            _uiState.update { it.copy(isLoading = true) }
+                            handleLoading()
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -147,7 +147,6 @@ class FileUploadViewModel @Inject constructor(
             }
         }
     }
-
     private suspend fun handleUploadSuccess(fileUrl: String) {
         _uiState.update {
             it.copy(
@@ -202,13 +201,68 @@ class FileUploadViewModel @Inject constructor(
                 errorCode = "FILE_005"
             )
         }
+        fun handleError(exception: Exception) {
+            val error = when (exception) {
+                is ValidationException -> CoreAppError.ValidationError(
+                    message = exception.message ?: "Validation failed",
+                    field = "file",
+                    errorCode = "FILE_001",
+                    constraints = listOf("File validation failed")
+                )
 
-        val errorMessage = errorHandler.handle(error)
-        _uiState.update {
-            it.copy(
-                isLoading = false,
-                errorMessage = errorMessage
-            )
+                is FileNotFoundException -> CoreAppError.FileError(
+                    message = "File not found or inaccessible",
+                    errorCode = "FILE_002",
+                    operation = CoreAppError.FileError.FileOperation.READ
+                )
+
+                is IOException -> CoreAppError.NetworkError(
+                    message = "Failed to upload file",
+                    isConnectionError = true,
+                    errorCode = "FILE_003",
+                    httpCode = null
+                )
+
+                is NetworkException -> CoreAppError.NetworkError(
+                    message = exception.message ?: "Network error occurred",
+                    isConnectionError = true,
+                    errorCode = "FILE_004",
+                    httpCode = null
+                )
+
+                else -> CoreAppError.UnexpectedError(
+                    message = "An unexpected error occurred while uploading file",
+                    cause = exception,
+                    errorCode = "FILE_005"
+                )
+            }
+
+            val baseError = when (error) {
+                is CoreAppError.NetworkError -> BaseAppError.Network(
+                    message = error.message,
+                    cause = error.cause
+                )
+                is CoreAppError.ValidationError -> BaseAppError.Validation(
+                    message = error.message,
+                    errors = mapOf(error.field.orEmpty() to error.message)
+                )
+                is CoreAppError.FileError -> BaseAppError.UnexpectedError(
+                    message = error.message,
+                    cause = error.cause
+                )
+                else -> BaseAppError.UnexpectedError(
+                    message = error.message,
+                    cause = error.cause
+                )
+            }
+
+            val errorMessage = errorHandler.handle(baseError)
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    errorMessage = errorMessage
+                )
+            }
         }
     }
 
@@ -252,6 +306,12 @@ class FileUploadViewModel @Inject constructor(
         }
     }
 }
+data class FileUploadParams(
+    val file: InputStream,
+    val name: String,
+    val type: String,
+    val size: Long
+)
 
 class ValidationException(message: String) : Exception(message)
 class NetworkException(message: String) : Exception(message)

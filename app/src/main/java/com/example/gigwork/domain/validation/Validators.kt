@@ -22,9 +22,9 @@ object Validators {
     private const val MIN_DURATION = 1
     private const val MAX_DURATION = 365
 
-    private val ALLOWED_SALARY_UNITS = setOf("hourly", "daily", "weekly", "monthly")
-    private val ALLOWED_DURATION_UNITS = setOf("hours", "days", "weeks", "months")
-    private val ALLOWED_JOB_STATUSES = setOf("OPEN", "CLOSED", "PENDING", "DELETED")
+    val ALLOWED_SALARY_UNITS = setOf("hourly", "daily", "weekly", "monthly")
+    val ALLOWED_DURATION_UNITS = setOf("hours", "days", "weeks", "months")
+    private val ALLOWED_JOB_STATUSES = setOf("OPEN", "CLOSED", "PENDING", "DELETED", "ACTIVE")
 
     /**
      * Validates complete job input
@@ -203,27 +203,60 @@ object Validators {
 
         return if (errors.isEmpty()) ValidationResult.Success else ValidationResult.Error(errors)
     }
+
+    /**
+     * Job validation using the generic validation rules
+     */
+    object JobValidation {
+        val titleRules = listOf(
+            StringValidationRule.NotEmpty("Job title is required"),
+            StringValidationRule.MinLength(3, "Job title must be at least 3 characters"),
+            StringValidationRule.MaxLength(100, "Job title cannot exceed 100 characters")
+        )
+
+        val descriptionRules = listOf(
+            StringValidationRule.NotEmpty("Job description is required"),
+            StringValidationRule.MinLength(20, "Job description must be at least 20 characters")
+        )
+
+        val salaryRules = listOf(
+            NumberValidationRule.Minimum(0.0, "Salary must be greater than 0"),
+            NumberValidationRule.Maximum(1000000.0, "Salary cannot exceed 1,000,000")
+        )
+
+        // Custom validation
+        val locationValidator = CustomValidationRule<Location>(
+            validationFunction = { location ->
+                location.state.isNotBlank() && location.district.isNotBlank()
+            },
+            errorMessage = "Both state and district are required"
+        )
+
+        /**
+         * Example of using the generic validation rules
+         */
+        fun validateJobWithRules(job: Job): ValidationResult {
+            // Validate title
+            job.title.validate(*titleRules.toTypedArray()).let {
+                if (it is ValidationResult.SingleError) return it.copy(field = "title")
+            }
+
+            // Validate description
+            job.description.validate(*descriptionRules.toTypedArray()).let {
+                if (it is ValidationResult.SingleError) return it.copy(field = "description")
+            }
+
+            // Validate salary
+            job.salary.validate(*salaryRules.toTypedArray()).let {
+                if (it is ValidationResult.SingleError) return it.copy(field = "salary")
+            }
+
+            // Validate location
+            locationValidator.validate(job.location).let {
+                if (it is ValidationResult.SingleError) return it.copy(field = "location")
+            }
+
+            return ValidationResult.Success
+        }
+    }
 }
-
-/**
- * Represents a validation error
- */
-data class ValidationError(
-    val message: String,
-    val field: String
-)
-
-/**
- * Represents the result of a validation operation
- */
-sealed class ValidationResult {
-    object Success : ValidationResult()
-    data class Error(val errors: List<ValidationError>) : ValidationResult()
-}
-
-/**
- * Custom exception for validation errors
- */
-class ValidationException(
-    val errors: List<ValidationError>
-) : Exception(errors.joinToString(", ") { it.message })

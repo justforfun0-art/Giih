@@ -4,7 +4,7 @@ import javax.inject.Qualifier
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
-annotation class LogLevel
+annotation class LogLevelType  // Renamed from LogLevel to avoid conflict
 
 /**
  * Defines the different logging levels available in the application

@@ -5,11 +5,18 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.SavedStateHandle
 import com.example.gigwork.core.error.handler.GlobalErrorHandler
 import com.example.gigwork.core.error.model.*
+import com.example.gigwork.core.result.ApiResult
 import com.example.gigwork.di.IoDispatcher
+import com.example.gigwork.domain.models.Location
+import com.example.gigwork.domain.repository.FavoriteLocationRepository
 import com.example.gigwork.domain.repository.LocationRepository
+import com.example.gigwork.domain.repository.LocationResult
 import com.example.gigwork.domain.usecase.location.GetStatesAndDistrictsUseCase
 import com.example.gigwork.presentation.states.FavoriteLocation
+import com.example.gigwork.presentation.states.LocationError
 import com.example.gigwork.presentation.states.RecentLocation
+import com.example.gigwork.presentation.states.LocationState
+import com.example.gigwork.presentation.states.LocationTab
 import com.example.gigwork.util.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,24 +29,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import javax.inject.Inject
 import java.util.UUID
 import kotlin.math.pow
+import com.example.gigwork.presentation.events.LocationEvent
+import com.example.gigwork.presentation.states.LocationSearchResult
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asSharedFlow
+import com.example.gigwork.presentation.states.LocationType
 
-sealed class LocationEvent {
-    data class LocationSelected(val state: String, val district: String) : LocationEvent()
-    data class LocationSearched(val query: String, val results: List<Location>) : LocationEvent()
-    data class LocationResolved(
-        val state: String,
-        val district: String,
-        val fullAddress: String,
-        val pinCode: String
-    ) : LocationEvent()
-    data class LocationSaved(val location: FavoriteLocation) : LocationEvent()
-    object RequestLocationPermission : LocationEvent()
-    object OpenLocationSettings : LocationEvent()
-    object ClearSelection : LocationEvent()
-}
 
 enum class LocationTab {
     LIST, MAP, FAVORITES
@@ -74,7 +73,6 @@ data class LocationState(
     val lastUpdated: Long = 0L,
     val isCacheValid: Boolean = false
 )
-
 @HiltViewModel
 class LocationViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
@@ -92,24 +90,20 @@ class LocationViewModel @Inject constructor(
         private const val KEY_SELECTED_DISTRICT = "selectedDistrict"
         private const val KEY_ZOOM_LEVEL = "zoomLevel"
         private const val KEY_SELECTED_TAB = "selectedTab"
-        private const val LOCATION_CACHE_DURATION = 24 * 60 * 60 * 1000L // 24 hours
+        private const val LOCATION_CACHE_DURATION = 24 * 60 * 60 * 1000L
         private const val MAX_RETRY_ATTEMPTS = 3
         private const val INITIAL_RETRY_DELAY = 1000L
+        private const val MIN_SEARCH_QUERY_LENGTH = 2
     }
 
     private val _state = MutableStateFlow(LocationState())
     val state = _state.asStateFlow()
 
-    private val _events = MutableStateFlow<LocationEvent?>(null)
-    val events = _events.asStateFlow()
+    private val _events = MutableSharedFlow<LocationEvent>()
+    val events = _events.asSharedFlow()
 
     init {
         initializeData()
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        viewModelScope.cancel()
     }
 
     private fun initializeData() {
@@ -139,30 +133,112 @@ class LocationViewModel @Inject constructor(
 
         savedState?.let { loadDistricts(it) }
     }
-
     fun loadStates() {
         viewModelScope.launch {
-            updateState { copy(isLoadingStates = true) }
+            try {
+                updateState { copy(isLoadingStates = true) }
 
-            getStatesAndDistrictsUseCase.getStates()
-                .retryWithExponentialBackoff()
-                .catch { e -> handleError(e.toAppError()) }
-                .collect { result ->
-                    when (result) {
-                        is Result.Success -> {
-                            updateState {
-                                copy(
-                                    states = result.data.sorted(),
-                                    isLoadingStates = false,
-                                    lastUpdated = System.currentTimeMillis(),
-                                    isCacheValid = true
-                                )
-                            }
+                locationRepository.getStates()
+                    .retryWhen { cause, attempt ->
+                        if (attempt < MAX_RETRY_ATTEMPTS) {
+                            delay(INITIAL_RETRY_DELAY * 2.0.pow(attempt.toDouble()).toLong())
+                            true
+                        } else {
+                            false
                         }
-                        is Result.Error -> handleError(result.error)
-                        is Result.Loading -> updateState { copy(isLoadingStates = true) }
                     }
+                    .catch { e ->
+                        val error = when (e) {
+                            is AppError -> e
+                            else -> AppError.UnexpectedError(
+                                message = e.message ?: "Failed to load states",
+                                cause = e
+                            )
+                        }
+                        handleError(error)
+                    }
+                    .collect { apiResult ->
+                        when (apiResult) {
+                            is ApiResult.Success<List<String>> -> {
+                                updateState {
+                                    copy(
+                                        states = apiResult.data.sorted(),
+                                        isLoadingStates = false,
+                                        lastUpdated = System.currentTimeMillis(),
+                                        isCacheValid = true
+                                    )
+                                }
+                            }
+                            is ApiResult.Error -> handleError(apiResult.error)
+                            is ApiResult.Loading -> updateState { copy(isLoadingStates = true) }
+                        }
+                    }
+            } catch (e: Exception) {
+                val error = when (e) {
+                    is AppError -> e
+                    else -> AppError.UnexpectedError(
+                        message = e.message ?: "Failed to load states",
+                        cause = e
+                    )
                 }
+                handleError(error)
+            } finally {
+                updateState { copy(isLoadingStates = false) }
+            }
+        }
+    }
+    fun loadDistricts(state: String) {
+        if (!validateState(state)) return
+
+        viewModelScope.launch {
+            try {
+                updateState { copy(isLoadingDistricts = true) }
+
+                locationRepository.getDistricts(state)
+                    .retryWhen { cause, attempt ->
+                        if (attempt < MAX_RETRY_ATTEMPTS) {
+                            delay(INITIAL_RETRY_DELAY * 2.0.pow(attempt.toDouble()).toLong())
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    .catch { e ->
+                        val error = when (e) {
+                            is AppError -> e
+                            else -> AppError.UnexpectedError(
+                                message = e.message ?: "Failed to load districts",
+                                cause = e
+                            )
+                        }
+                        handleError(error)
+                    }
+                    .collect { apiResult ->
+                        when (apiResult) {
+                            is ApiResult.Success<List<String>> -> {
+                                updateState {
+                                    copy(
+                                        districts = apiResult.data.sorted(),
+                                        isLoadingDistricts = false
+                                    )
+                                }
+                            }
+                            is ApiResult.Error -> handleError(apiResult.error)
+                            is ApiResult.Loading -> updateState { copy(isLoadingDistricts = true) }
+                        }
+                    }
+            } catch (e: Exception) {
+                val error = when (e) {
+                    is AppError -> e
+                    else -> AppError.UnexpectedError(
+                        message = e.message ?: "Failed to load districts",
+                        cause = e
+                    )
+                }
+                handleError(error)
+            } finally {
+                updateState { copy(isLoadingDistricts = false) }
+            }
         }
     }
 
@@ -183,78 +259,244 @@ class LocationViewModel @Inject constructor(
         }
     }
 
-    private fun loadDistricts(state: String) {
-        if (!validateState(state)) return
-
-        viewModelScope.launch {
-            updateState { copy(isLoadingDistricts = true) }
-
-            getStatesAndDistrictsUseCase.getDistricts(state)
-                .retryWithExponentialBackoff()
-                .catch { e -> handleError(e.toAppError()) }
-                .collect { result ->
-                    when (result) {
-                        is Result.Success -> {
-                            updateState {
-                                copy(
-                                    districts = result.data.sorted(),
-                                    isLoadingDistricts = false
-                                )
-                            }
-                        }
-                        is Result.Error -> handleError(result.error)
-                        is Result.Loading -> updateState { copy(isLoadingDistricts = true) }
-                    }
-                }
-        }
-    }
-
     fun updateSelectedDistrict(district: String) {
         viewModelScope.launch {
-            savedStateHandle[KEY_SELECTED_DISTRICT] = district
-
             val currentState = state.value.selectedState
             if (currentState != null) {
+                savedStateHandle[KEY_SELECTED_DISTRICT] = district
                 updateState { copy(selectedDistrict = district) }
                 addToRecentLocations(currentState, district)
-                emitEvent(LocationEvent.LocationSelected(currentState, district))
+                emitLocationEvent(LocationEvent.LocationSelected(currentState, district))
             } else {
                 handleError(AppError.ValidationError("No state selected"))
             }
         }
     }
 
+    // First, let's add a mapper function
+    private fun Location.toLocationSearchResult(): LocationSearchResult {
+        return LocationSearchResult(
+            state = this.state,
+            district = this.district,
+            fullAddress = this.address ?: "",
+            distance = null,
+            latitude = this.latitude,
+            longitude = this.longitude,
+            type = LocationType.OTHER
+        )
+    }
     fun searchLocations(query: String) {
         if (!validateSearchQuery(query)) return
 
         viewModelScope.launch {
-            updateState { copy(isSearching = true) }
-
             try {
+                updateState { copy(isSearching = true) }
+
                 withContext(ioDispatcher) {
-                    locationRepository.searchLocations(query)
-                        .retryWithExponentialBackoff()
-                        .catch { e -> handleError(e.toAppError()) }
-                        .collect { result ->
-                            when (result) {
-                                is Result.Success -> {
+                    locationRepository.searchLocationsByQuery(query)
+                        .retryWhen { cause, attempt ->
+                            if (attempt < MAX_RETRY_ATTEMPTS) {
+                                delay(INITIAL_RETRY_DELAY * 2.0.pow(attempt.toDouble()).toLong())
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        .catch { e ->
+                            val error = when (e) {
+                                is AppError -> e
+                                else -> AppError.UnexpectedError(
+                                    message = e.message ?: "Failed to search locations",
+                                    cause = e
+                                )
+                            }
+                            handleError(error)
+                        }
+                        .collect { apiResult ->
+                            when (apiResult) {
+                                is ApiResult.Success<List<Location>> -> {
+                                    val searchResults = apiResult.data.map { it.toLocationSearchResult() }
                                     updateState {
                                         copy(
-                                            searchResults = result.data,
+                                            searchResults = searchResults,
                                             isSearching = false
                                         )
                                     }
-                                    emitEvent(LocationEvent.LocationSearched(query, result.data))
+                                    emitLocationEvent(LocationEvent.LocationSearched(
+                                        query = query,
+                                        results = apiResult.data
+                                    ))
                                 }
-                                is Result.Error -> handleError(result.error)
-                                is Result.Loading -> updateState { copy(isSearching = true) }
+                                is ApiResult.Error -> handleError(apiResult.error)
+                                is ApiResult.Loading -> updateState { copy(isSearching = true) }
                             }
                         }
                 }
             } catch (e: Exception) {
-                handleError(e.toAppError())
+                val error = when (e) {
+                    is AppError -> e
+                    else -> AppError.UnexpectedError(
+                        message = e.message ?: "Failed to search locations",
+                        cause = e
+                    )
+                }
+                handleError(error)
+            } finally {
+                updateState { copy(isSearching = false) }
             }
         }
+    }
+
+    private fun validateSearchRequest(query: String): Boolean {
+        if (query.length < MIN_SEARCH_QUERY_LENGTH) {
+            handleError(AppError.ValidationError(
+                message = "Search query must be at least $MIN_SEARCH_QUERY_LENGTH characters",
+                field = "query"
+            ))
+            return false
+        }
+        return true
+    }
+
+    private fun validateLocationData(location: Location): Boolean {
+        return when {
+            location.state.isBlank() -> {
+                handleError(AppError.ValidationError(
+                    message = "State cannot be empty",
+                    field = "state"
+                ))
+                false
+            }
+            location.district.isBlank() -> {
+                handleError(AppError.ValidationError(
+                    message = "District cannot be empty",
+                    field = "district"
+                ))
+                false
+            }
+            else -> true
+        }
+    }
+
+    // State Management Functions
+    fun retry() {
+        viewModelScope.launch {
+            clearError()
+            state.value.selectedState?.let {
+                loadDistricts(it)
+            } ?: loadStates()
+        }
+    }
+
+    fun clearError() {
+        updateState {
+            copy(
+                errorMessage = null,
+                locationError = null
+            )
+        }
+    }
+
+    // Additional Validation Functions
+    private fun validateLocationPermissions(): Boolean {
+        val currentState = state.value
+        if (!currentState.hasLocationPermission) {
+            emitLocationEvent(LocationEvent.RequestLocationPermission)
+            return false
+        }
+        if (!currentState.isLocationEnabled) {
+            emitLocationEvent(LocationEvent.OpenLocationSettings)
+            return false
+        }
+        return true
+    }
+
+    private fun validateMapState(): Boolean {
+        val currentState = state.value
+        return when {
+            !currentState.isMapVisible -> {
+                handleError(AppError.ValidationError(
+                    message = "Map is not currently visible",
+                    field = "map_visibility"
+                ))
+                false
+            }
+            currentState.mapZoomLevel < 0 -> {
+                handleError(AppError.ValidationError(
+                    message = "Invalid map zoom level",
+                    field = "zoom_level"
+                ))
+                false
+            }
+            else -> true
+        }
+    }
+
+    // Cache Management Functions
+    private fun validateCache(): Boolean {
+        return when {
+            !state.value.isCacheValid -> {
+                refreshLocationData()
+                false
+            }
+            System.currentTimeMillis() - state.value.lastUpdated > LOCATION_CACHE_DURATION -> {
+                refreshLocationData()
+                false
+            }
+            else -> true
+        }
+    }
+
+    private fun refreshLocationData() {
+        viewModelScope.launch {
+            loadStates()
+            state.value.selectedState?.let { loadDistricts(it) }
+        }
+    }
+
+    // Location Data Management
+    private fun updateLocationData(location: Location) {
+        updateState {
+            copy(
+                selectedState = location.state,
+                selectedDistrict = location.district,
+                latitude = location.latitude,
+                longitude = location.longitude,
+                formattedAddress = location.address,
+                lastUpdated = System.currentTimeMillis(),
+                isCacheValid = true
+            )
+        }
+    }
+
+    // Event Handling
+    private fun handleLocationEvent(event: LocationEvent) {
+        viewModelScope.launch {
+            when (event) {
+                is LocationEvent.LocationSelected -> {
+                    addToRecentLocations(event.state, event.district)
+                }
+                is LocationEvent.CoordinatesUpdated -> {
+                    updateMapLocation(event.latitude, event.longitude, state.value.mapZoomLevel)
+                }
+                is LocationEvent.ValidationError -> {
+                    handleError(AppError.ValidationError(
+                        message = event.message,
+                        field = event.field
+                    ))
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    // Utility Functions
+    private fun getLocationIdentifier(state: String, district: String): String {
+        return "$state:$district"
+    }
+
+    private fun isValidLocationPair(state: String?, district: String?): Boolean {
+        return !state.isNullOrBlank() && !district.isNullOrBlank()
     }
 
     fun updateMapLocation(latitude: Double, longitude: Double, zoomLevel: Float) {
@@ -272,51 +514,74 @@ class LocationViewModel @Inject constructor(
             resolveLocation(latitude, longitude)
         }
     }
-
     private suspend fun resolveLocation(latitude: Double, longitude: Double) {
         updateState { copy(isResolvingLocation = true) }
 
         try {
             withContext(ioDispatcher) {
                 locationRepository.getLocationFromCoordinates(latitude, longitude)
-                    .retryWithExponentialBackoff()
-                    .catch { e -> handleError(e.toAppError()) }
-                    .collect { result ->
-                        when (result) {
-                            is Result.Success -> {
-                                val location = result.data
+                    .retryWhen { cause, attempt ->
+                        if (attempt < MAX_RETRY_ATTEMPTS) {
+                            delay(INITIAL_RETRY_DELAY * 2.0.pow(attempt.toDouble()).toLong())
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    .catch { e ->
+                        val error = when (e) {
+                            is AppError -> e
+                            else -> AppError.UnexpectedError(
+                                message = e.message ?: "Failed to resolve location",
+                                cause = e
+                            )
+                        }
+                        handleError(error)
+                    }
+                    .collect { apiResult ->
+                        when (apiResult) {
+                            is ApiResult.Success<Location> -> {
+                                val location = apiResult.data
                                 updateState {
                                     copy(
                                         selectedState = location.state,
                                         selectedDistrict = location.district,
-                                        formattedAddress = location.fullAddress,
+                                        formattedAddress = location.address,
                                         pinCode = location.pinCode,
                                         isResolvingLocation = false
                                     )
                                 }
-                                emitEvent(
+                                emitLocationEvent(
                                     LocationEvent.LocationResolved(
                                         state = location.state,
                                         district = location.district,
-                                        fullAddress = location.fullAddress,
-                                        pinCode = location.pinCode
+                                        fullAddress = location.address ?: "",
+                                        pinCode = location.pinCode ?: ""
                                     )
                                 )
                             }
-                            is Result.Error -> {
+                            is ApiResult.Error -> {
                                 updateState {
                                     copy(
-                                        locationError = LocationError.ResolutionFailed(result.error.message),
+                                        locationError = LocationError.ResolutionFailed(apiResult.error.message),
                                         isResolvingLocation = false
                                     )
                                 }
                             }
-                            is Result.Loading -> updateState { copy(isResolvingLocation = true) }
+                            is ApiResult.Loading -> updateState { copy(isResolvingLocation = true) }
                         }
                     }
             }
         } catch (e: Exception) {
-            handleError(e.toAppError())
+            val error = when (e) {
+                is AppError -> e
+                else -> AppError.UnexpectedError(
+                    message = e.message ?: "Failed to resolve location",
+                    cause = e
+                )
+            }
+            handleError(error)
+        } finally {
             updateState { copy(isResolvingLocation = false) }
         }
     }
@@ -337,53 +602,129 @@ class LocationViewModel @Inject constructor(
 
     private fun loadRecentLocations() {
         viewModelScope.launch {
-            locationRepository.getRecentLocations()
-                .retryWithExponentialBackoff()
-                .catch { e -> handleError(e.toAppError()) }
-                .collect { result ->
-                    when (result) {
-                        is Result.Success -> updateState { copy(recentLocations = result.data) }
-                        is Result.Error -> handleError(result.error)
-                        is Result.Loading -> Unit // Don't show loading for recent locations
+            try {
+                locationRepository.getRecentLocations()
+                    .retryWhen { cause, attempt ->
+                        if (attempt < MAX_RETRY_ATTEMPTS) {
+                            delay(INITIAL_RETRY_DELAY * 2.0.pow(attempt.toDouble()).toLong())
+                            true
+                        } else {
+                            false
+                        }
                     }
+                    .catch { e ->
+                        val error = when (e) {
+                            is AppError -> e
+                            else -> AppError.UnexpectedError(
+                                message = e.message ?: "Failed to load recent locations",
+                                cause = e
+                            )
+                        }
+                        handleError(error)
+                    }
+                    .collect { apiResult ->
+                        when (apiResult) {
+                            is ApiResult.Success<List<RecentLocation>> -> {
+                                updateState { copy(recentLocations = apiResult.data) }
+                            }
+                            is ApiResult.Error -> handleError(apiResult.error)
+                            is ApiResult.Loading -> Unit
+                        }
+                    }
+            } catch (e: Exception) {
+                val error = when (e) {
+                    is AppError -> e
+                    else -> AppError.UnexpectedError(
+                        message = e.message ?: "Failed to load recent locations",
+                        cause = e
+                    )
                 }
+                handleError(error)
+            }
         }
     }
-
-    fun addToFavorites(name: String, type: LocationType) {
+    fun addToFavorites(name: String, type: com.example.gigwork.presentation.states.LocationType) {
         viewModelScope.launch {
-            val currentState = state.value
-            if (!validateCurrentLocation(currentState)) return@launch
+            try {
+                val currentState = state.value
+                if (!validateCurrentLocation(currentState)) return@launch
 
-            val favoriteLocation = FavoriteLocation(
-                id = UUID.randomUUID().toString(),
-                name = name,
-                state = currentState.selectedState!!,
-                district = currentState.selectedDistrict!!,
-                latitude = currentState.latitude,
-                longitude = currentState.longitude,
-                address = currentState.formattedAddress,
-                type = type
-            )
+                val favoriteLocation = FavoriteLocation(
+                    id = UUID.randomUUID().toString(),
+                    name = name,
+                    state = currentState.selectedState!!,
+                    district = currentState.selectedDistrict!!,
+                    latitude = currentState.latitude,
+                    longitude = currentState.longitude,
+                    address = currentState.formattedAddress,
+                    type = type
+                )
 
-            favoriteLocationRepository.addFavoriteLocation(favoriteLocation)
-            loadFavoriteLocations()
-            emitEvent(LocationEvent.LocationSaved(favoriteLocation))
+                favoriteLocationRepository.addFavoriteLocation(favoriteLocation)
+                    .collect { result ->
+                        when (result) {
+                            is ApiResult.Success<Unit> -> {
+                                loadFavoriteLocations()
+                                emitLocationEvent(LocationEvent.LocationSaved(favoriteLocation))
+                            }
+                            is ApiResult.Error -> handleError(result.error)
+                            is ApiResult.Loading -> Unit
+                        }
+                    }
+            } catch (e: Exception) {
+                val error = when (e) {
+                    is AppError -> e
+                    else -> AppError.UnexpectedError(
+                        message = e.message ?: "Failed to add favorite location",
+                        cause = e
+                    )
+                }
+                handleError(error)
+            }
         }
     }
 
     private fun loadFavoriteLocations() {
         viewModelScope.launch {
-            favoriteLocationRepository.getFavoriteLocations()
-                .retryWithExponentialBackoff()
-                .catch { e -> handleError(e.toAppError()) }
-                .collect { result ->
-                    when (result) {
-                        is Result.Success -> updateState { copy(favoriteLocations = result.data) }
-                        is Result.Error -> handleError(result.error)
-                        is Result.Loading -> Unit // Don't show loading for favorites
+            try {
+                favoriteLocationRepository.getFavoriteLocations()
+                    .retryWhen { cause, attempt ->
+                        if (attempt < MAX_RETRY_ATTEMPTS) {
+                            delay(INITIAL_RETRY_DELAY * 2.0.pow(attempt.toDouble()).toLong())
+                            true
+                        } else {
+                            false
+                        }
                     }
+                    .catch { e ->
+                        val error = when (e) {
+                            is AppError -> e
+                            else -> AppError.UnexpectedError(
+                                message = e.message ?: "Failed to load favorite locations",
+                                cause = e
+                            )
+                        }
+                        handleError(error)
+                    }
+                    .collect { apiResult ->
+                        when (apiResult) {
+                            is ApiResult.Success<List<FavoriteLocation>> -> {
+                                updateState { copy(favoriteLocations = apiResult.data) }
+                            }
+                            is ApiResult.Error -> handleError(apiResult.error)
+                            is ApiResult.Loading -> Unit
+                        }
+                    }
+            } catch (e: Exception) {
+                val error = when (e) {
+                    is AppError -> e
+                    else -> AppError.UnexpectedError(
+                        message = e.message ?: "Failed to load favorite locations",
+                        cause = e
+                    )
                 }
+                handleError(error)
+            }
         }
     }
 
@@ -405,61 +746,9 @@ class LocationViewModel @Inject constructor(
             }
 
             when {
-                !hasPermission -> emitEvent(LocationEvent.RequestLocationPermission)
-                !isEnabled -> emitEvent(LocationEvent.OpenLocationSettings)
+                !hasPermission -> emitLocationEvent(LocationEvent.RequestLocationPermission)
+                !isEnabled -> emitLocationEvent(LocationEvent.OpenLocationSettings)
             }
-        }
-    }
-
-    private fun handleError(error: AppError) {
-        logger.e(
-            tag = TAG,
-            message = "Error in LocationViewModel: ${error.message}",
-            throwable = error,
-            additionalData = mapOf(
-                "selectedState" to state.value.selectedState,
-                "selectedDistrict" to state.value.selectedDistrict,
-                "operation" to getCurrentOperation(),
-                "timestamp" to System.currentTimeMillis()
-            )
-        )
-
-        updateState {
-            copy(
-                isLoadingStates = false,
-                isLoadingDistricts = false,
-                isResolvingLocation = false,
-                isSearching = false,
-                errorMessage = error.toErrorMessage()
-            )
-        }
-    }
-
-    private fun getCurrentOperation(): String = with(state.value) {
-        return when {
-            isLoadingStates -> "loading_states"
-            isLoadingDistricts -> "loading_districts"
-            isResolvingLocation -> "resolving_location"
-            isSearching -> "searching"
-            else -> "unknown"
-        }
-    }
-
-    fun retry() {
-        viewModelScope.launch {
-            clearError()
-            state.value.selectedState?.let {
-                loadDistricts(it)
-            } ?: loadStates()
-        }
-    }
-
-    fun clearError() {
-        updateState {
-            copy(
-                errorMessage = null,
-                locationError = null
-            )
         }
     }
 
@@ -479,16 +768,51 @@ class LocationViewModel @Inject constructor(
                     pinCode = null
                 )
             }
-            emitEvent(LocationEvent.ClearSelection)
+            emitLocationEvent(LocationEvent.ClearSelection)
+        }
+    }
+
+    private fun handleError(error: AppError) {
+        logger.e(
+            tag = TAG,
+            message = "Error in LocationViewModel: ${error.message}",
+            throwable = error,
+            additionalData = mapOf(
+                "selectedState" to state.value.selectedState,
+                "selectedDistrict" to state.value.selectedDistrict,
+                "operation" to getCurrentOperation(),
+                "timestamp" to System.currentTimeMillis()
+            )
+        )
+
+        val errorMessage = errorHandler.handleCoreError(error)
+        updateState {
+            copy(
+                isLoadingStates = false,
+                isLoadingDistricts = false,
+                isResolvingLocation = false,
+                isSearching = false,
+                errorMessage = errorMessage
+            )
+        }
+    }
+
+    private fun getCurrentOperation(): String = with(state.value) {
+        return when {
+            isLoadingStates -> "loading_states"
+            isLoadingDistricts -> "loading_districts"
+            isResolvingLocation -> "resolving_location"
+            isSearching -> "searching"
+            else -> "unknown"
         }
     }
 
     private fun validateState(state: String): Boolean {
-        return state.isNotEmpty() && !state.value.isLoadingStates
+        return state.isNotEmpty() && !this.state.value.isLoadingStates
     }
 
     private fun validateSearchQuery(query: String): Boolean {
-        return query.length >= 2
+        return query.length >= MIN_SEARCH_QUERY_LENGTH
     }
 
     private fun validateCoordinates(latitude: Double, longitude: Double): Boolean {
@@ -496,8 +820,7 @@ class LocationViewModel @Inject constructor(
     }
 
     private fun validateCurrentLocation(currentState: LocationState): Boolean {
-        return currentState.selectedState != null &&
-                currentState.selectedDistrict != null
+        return currentState.selectedState != null && currentState.selectedDistrict != null
     }
 
     private fun isCacheValid(): Boolean {
@@ -505,7 +828,7 @@ class LocationViewModel @Inject constructor(
         return System.currentTimeMillis() - lastUpdated < LOCATION_CACHE_DURATION
     }
 
-    private fun emitEvent(event: LocationEvent) {
+    private fun emitLocationEvent(event: LocationEvent) {
         viewModelScope.launch {
             _events.emit(event)
         }
@@ -515,7 +838,7 @@ class LocationViewModel @Inject constructor(
         _state.update { it.update() }
     }
 
-    private suspend fun <T> kotlinx.coroutines.flow.Flow<T>.retryWithExponentialBackoff(): kotlinx.coroutines.flow.Flow<T> {
+    private suspend fun <T> Flow<T>.retryWithExponentialBackoff(): Flow<T> {
         return this.retryWhen { cause, attempt ->
             if (attempt < MAX_RETRY_ATTEMPTS) {
                 delay(INITIAL_RETRY_DELAY * 2.0.pow(attempt.toDouble()).toLong())
@@ -524,5 +847,20 @@ class LocationViewModel @Inject constructor(
                 false
             }
         }
+    }
+
+    private fun Exception.toAppError(): AppError {
+        return when (this) {
+            is AppError -> this
+            else -> AppError.UnexpectedError(
+                message = this.message ?: "An unexpected error occurred",
+                cause = this
+            )
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        viewModelScope.cancel()
     }
 }

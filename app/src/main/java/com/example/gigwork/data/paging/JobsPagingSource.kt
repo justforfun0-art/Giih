@@ -5,7 +5,7 @@ import androidx.paging.PagingState
 import com.example.gigwork.data.api.SupabaseClient
 import com.example.gigwork.data.mappers.toDomain
 import com.example.gigwork.domain.models.Job
-import io.github.jan.supabase.postgrest.query.FilterOperator
+import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Inject
 
 class JobsPagingSource @Inject constructor(
@@ -21,35 +21,37 @@ class JobsPagingSource @Inject constructor(
         try {
             val page = params.key ?: 1
             val pageSize = params.loadSize
+            val offset = (page - 1) * pageSize
 
-            val query = supabaseClient.client.postgrest["jobs"]
+            // Create query with select
+            val query = supabaseClient.client.postgrest
+                .from("jobs")
                 .select {
-                    // Apply filters
-                    state?.let {
-                        filter("location->>'state'", FilterOperator.EQ, it)
+                    // Apply filters inside the select block
+                    filter {
+                        state?.let { eq("location_state", it) }
+                        district?.let { eq("location_district", it) }
+                        minSalary?.let { gte("salary", it) }
+                        maxSalary?.let { lte("salary", it) }
                     }
-                    district?.let {
-                        filter("location->>'district'", FilterOperator.EQ, it)
-                    }
-                    minSalary?.let {
-                        filter("salary", FilterOperator.GTE, it)
-                    }
-                    maxSalary?.let {
-                        filter("salary", FilterOperator.LTE, it)
-                    }
-                    searchQuery?.let {
-                        or {
-                            filter("title", FilterOperator.ILIKE, "%$it%")
-                            filter("description", FilterOperator.ILIKE, "%$it%")
+
+                    // Apply search query if provided
+                    searchQuery?.let { query ->
+                        filter {
+                            or {
+                                ilike("title", "%$query%")
+                                ilike("description", "%$query%")
+                            }
                         }
                     }
 
-                    // Add pagination
-                    limit(pageSize)
-                    offset((page - 1) * pageSize)
-                    order("created_at", ascending = false)
+                    // Pagination and ordering inside select block
+                    //limit(pageSize.toLong())
+                    range(offset.toLong(), (offset + pageSize).toLong() - 1)
+                    order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 }
 
+            // Execute the query and map the results
             val jobs = query.decodeList<com.example.gigwork.data.models.JobDto>()
                 .map { it.toDomain() }
 

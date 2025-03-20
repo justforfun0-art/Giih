@@ -1,4 +1,3 @@
-// presentation/common/LocationSelector.kt
 package com.example.gigwork.presentation.common
 
 import androidx.compose.foundation.layout.*
@@ -6,27 +5,29 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.gigwork.presentation.viewmodels.LocationViewModel
+import com.example.gigwork.presentation.states.ValidationError as UiValidationError
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationSelector(
-    modifier: Modifier = Modifier,
+    selectedState: String = "",
+    selectedDistrict: String = "",
+    onLocationSelected: (state: String, district: String) -> Unit,
+    error: UiValidationError? = null,  // Add this parameter, which represents the error state
     viewModel: LocationViewModel = hiltViewModel(),
-    onLocationSelected: (state: String, district: String) -> Unit
+    modifier: Modifier = Modifier
 ) {
-    val states by viewModel.states.collectAsState()
-    val districts by viewModel.districts.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val state by viewModel.state.collectAsState()
 
-    var selectedState by remember { mutableStateOf<String?>(null) }
-    var selectedDistrict by remember { mutableStateOf<String?>(null) }
     var isStateMenuExpanded by remember { mutableStateOf(false) }
     var isDistrictMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadStates()
+    }
 
     Column(
         modifier = modifier
@@ -39,10 +40,11 @@ fun LocationSelector(
             onExpandedChange = { isStateMenuExpanded = !isStateMenuExpanded }
         ) {
             OutlinedTextField(
-                value = selectedState ?: "",
+                value = selectedState,
                 onValueChange = { },
                 readOnly = true,
                 label = { Text("State") },
+                isError = error != null,
                 trailingIcon = {
                     ExposedDropdownMenuDefaults.TrailingIcon(expanded = isStateMenuExpanded)
                 },
@@ -55,14 +57,12 @@ fun LocationSelector(
                 expanded = isStateMenuExpanded,
                 onDismissRequest = { isStateMenuExpanded = false }
             ) {
-                states.forEach { state ->
+                state.states.forEach { stateOption ->
                     DropdownMenuItem(
-                        text = { Text(state) },
+                        text = { Text(stateOption) },
                         onClick = {
-                            selectedState = state
-                            selectedDistrict = null
+                            viewModel.updateSelectedState(stateOption)
                             isStateMenuExpanded = false
-                            viewModel.loadDistricts(state)
                         }
                     )
                 }
@@ -72,13 +72,13 @@ fun LocationSelector(
         Spacer(modifier = Modifier.height(16.dp))
 
         // District Dropdown
-        if (selectedState != null) {
+        if (selectedState.isNotEmpty()) {
             ExposedDropdownMenuBox(
                 expanded = isDistrictMenuExpanded,
                 onExpandedChange = { isDistrictMenuExpanded = !isDistrictMenuExpanded }
             ) {
                 OutlinedTextField(
-                    value = selectedDistrict ?: "",
+                    value = selectedDistrict,
                     onValueChange = { },
                     readOnly = true,
                     label = { Text("District") },
@@ -94,15 +94,13 @@ fun LocationSelector(
                     expanded = isDistrictMenuExpanded,
                     onDismissRequest = { isDistrictMenuExpanded = false }
                 ) {
-                    districts.forEach { district ->
+                    state.districts.forEach { districtOption ->
                         DropdownMenuItem(
-                            text = { Text(district) },
+                            text = { Text(districtOption) },
                             onClick = {
-                                selectedDistrict = district
+                                viewModel.updateSelectedDistrict(districtOption)
                                 isDistrictMenuExpanded = false
-                                selectedState?.let { state ->
-                                    onLocationSelected(state, district)
-                                }
+                                onLocationSelected(selectedState, districtOption)
                             }
                         )
                     }
@@ -110,8 +108,19 @@ fun LocationSelector(
             }
         }
 
+        // Display validation error if present
+        error?.let {
+            Text(
+                text = it.message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+
         // Loading State
-        if (isLoading) {
+        if (state.isLoadingStates || state.isLoadingDistricts) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -125,26 +134,15 @@ fun LocationSelector(
         }
 
         // Error State
-        error?.let { errorMessage ->
+        state.errorMessage?.let { error ->
             Text(
-                text = errorMessage,
+                text = error.message,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp)
             )
         }
-    }
-}
 
-// Preview
-@Preview(showBackground = true)
-@Composable
-fun LocationSelectorPreview() {
-    MaterialTheme {
-        LocationSelector(
-            onLocationSelected = { state, district ->
-                // Handle selection in preview
-            }
-        )
+
     }
 }

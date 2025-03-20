@@ -1,6 +1,5 @@
 package com.example.gigwork.data.api
 
-import com.example.gigwork.data.api.exceptions.LocationApiException
 import com.example.gigwork.data.cache.LocationCache
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -109,7 +108,20 @@ class LocationService @Inject constructor(
             )
         }
     }
-
+    // Add this method to LocationService class
+    suspend fun getLocationFromCoordinates(latitude: Double, longitude: Double): Flow<com.example.gigwork.domain.models.Location> = flow {
+        // In a real implementation, this would call a geocoding API
+        // For now, creating a placeholder implementation
+        val location = com.example.gigwork.domain.models.Location(
+            latitude = latitude,
+            longitude = longitude,
+            address = null,
+            pinCode = null,
+            state = "Unknown", // Default values when geocoding isn't available
+            district = "Unknown"
+        )
+        emit(location)
+    }
     suspend fun clearCache() {
         cache.clear()
     }

@@ -6,9 +6,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.example.gigwork.core.error.model.ErrorMessage
 import com.example.gigwork.core.error.model.ErrorAction
 import com.example.gigwork.core.error.ui.ErrorSnackbar
+import com.example.gigwork.domain.models.UserRole
+import com.example.gigwork.presentation.navigation.components.GigWorkNavigationBar
+
 
 // Base UiState interface that all screen states should implement
 interface UiState {
@@ -29,6 +34,9 @@ fun ScreenScaffold(
     onErrorDismiss: () -> Unit,
     onErrorAction: (ErrorAction) -> Unit,
     modifier: Modifier = Modifier,
+    userRole: UserRole? = null,
+    navController: NavController? = null,
+    showNavigationBar: Boolean = false,
     topBar: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
@@ -37,8 +45,25 @@ fun ScreenScaffold(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = topBar,
+        bottomBar = {
+            if (showNavigationBar && userRole != null && navController != null) {
+                GigWorkNavigationBar(
+                    userRole = userRole,
+                    currentRoute = navController.currentBackStackEntry?.destination?.route,
+                    onNavigate = { route ->
+                        navController.navigate(route) {
+                            launchSingleTop = true
+                            restoreState = true
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                        }
+                    }
+                )
+            }
+        },
         snackbarHost = {
-            Box(modifier = Modifier.padding(bottom = 16.dp)) {
+            Box(modifier = Modifier.padding(bottom = if (showNavigationBar) 80.dp else 16.dp)) {
                 errorMessage?.let { message ->
                     ErrorSnackbar(
                         errorMessage = message,
@@ -53,7 +78,6 @@ fun ScreenScaffold(
         content(paddingValues)
     }
 }
-
 // Loading indicator component
 @Composable
 fun LoadingIndicator(

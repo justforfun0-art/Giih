@@ -3,9 +3,9 @@ package com.example.gigwork.presentation.states
 import com.example.gigwork.core.error.model.ErrorMessage
 import com.example.gigwork.domain.models.Location
 import com.example.gigwork.presentation.base.UiEvent
+import com.example.gigwork.presentation.base.UiState
 
 data class CreateJobUiState(
-    // Form Data
     val title: String = "",
     val description: String = "",
     val salary: String = "",
@@ -16,35 +16,33 @@ data class CreateJobUiState(
     val district: String = "",
     val latitude: Double? = null,
     val longitude: Double? = null,
-
-    // Location Data
     val availableStates: List<String> = emptyList(),
     val availableDistricts: List<String> = emptyList(),
-
-    // Validation
     val validationErrors: Map<String, ValidationError> = emptyMap(),
-
-    // UI State
     override val isLoading: Boolean = false,
     val isSuccess: Boolean = false,
     override val errorMessage: ErrorMessage? = null,
     val successMessage: String? = null,
-
-    // Draft State
     val isDraft: Boolean = false,
+    val isPreviewMode: Boolean = false,
     val lastSavedAt: Long? = null,
-
-    // Calculation Results
     val totalCost: Double = 0.0,
     val costBreakdown: Map<String, Double> = emptyMap(),
-
-    // Form State
     val isDirty: Boolean = false,
     val isSubmitting: Boolean = false,
     val isLoadingLocation: Boolean = false
-): UiState<CreateJobUiState>
+) : UiState<CreateJobUiState> {
 
-{
+    override fun copy(
+        isLoading: Boolean,
+        errorMessage: ErrorMessage?
+    ): CreateJobUiState {
+        return copy(
+            isLoading = isLoading,
+            errorMessage = errorMessage
+        )
+    }
+
     fun isValid(): Boolean = validationErrors.isEmpty() &&
             title.isNotBlank() &&
             description.isNotBlank() &&
@@ -52,7 +50,6 @@ data class CreateJobUiState(
             workDuration.isNotBlank() &&
             state.isNotBlank() &&
             district.isNotBlank()
-
     fun hasErrors(): Boolean = validationErrors.isNotEmpty()
 
     fun getError(field: String): ValidationError? = validationErrors[field]
@@ -83,8 +80,7 @@ enum class FieldErrorType {
 sealed class CreateJobEvent : UiEvent {
     object NavigateBack : CreateJobEvent()
     data class JobCreated(val jobId: String) : CreateJobEvent()
-    data class ValidationError(val errors: Map<String, ValidationError>) : CreateJobEvent()
-    object DraftSaved : CreateJobEvent()
+    data class ValidationError(val errors: Map<String, com.example.gigwork.presentation.states.ValidationError>) : CreateJobEvent()    object DraftSaved : CreateJobEvent()
     object DraftDeleted : CreateJobEvent()
     data class ShowSnackbar(val message: String) : CreateJobEvent()
     object PreviewToggled : CreateJobEvent()

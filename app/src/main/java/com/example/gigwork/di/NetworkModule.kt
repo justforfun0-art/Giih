@@ -1,34 +1,49 @@
 package com.example.gigwork.di
 
+import android.content.Context
+import com.example.gigwork.BuildConfig
 import com.example.gigwork.data.api.LocationApiService
+import com.example.gigwork.data.api.NetworkInterceptor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import okhttp3.Cache
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
+import com.example.gigwork.util.NetworkUtils
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
     @Provides
     @Singleton
-    fun provideHttpLoggingInterceptor(): HttpLoggingInterceptor =
-        HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG)
+    fun provideNetworkUtils(@ApplicationContext context: Context): NetworkUtils {
+        return NetworkUtils(context)
+    }
+    @Provides
+    @Singleton
+    fun provideHttpLoggingInterceptor(): HttpLoggingInterceptor {
+        return HttpLoggingInterceptor().apply {
+            level = if (BuildConfig.DEBUG) {
                 HttpLoggingInterceptor.Level.BODY
-            else
+            } else {
                 HttpLoggingInterceptor.Level.NONE
+            }
         }
+    }
 
     @Provides
     @Singleton
-    fun provideNetworkInterceptor(): Interceptor =
-        NetworkInterceptor()
+    fun provideNetworkInterceptor(): Interceptor {
+        return NetworkInterceptor()
+    }
 
     @Provides
     @Singleton
@@ -36,14 +51,15 @@ object NetworkModule {
         loggingInterceptor: HttpLoggingInterceptor,
         networkInterceptor: Interceptor,
         @ApplicationContext context: Context
-    ): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(loggingInterceptor)
-        .addInterceptor(networkInterceptor)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .cache(Cache(context.cacheDir, 10 * 1024 * 1024)) // 10MB cache
-        .build()
-}
+    ): OkHttpClient {
+        return OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .addInterceptor(networkInterceptor)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .cache(Cache(context.cacheDir, 10 * 1024 * 1024)) // 10MB cache
+            .build()
+    }
 
     @Provides
     @Singleton
@@ -55,3 +71,4 @@ object NetworkModule {
             .build()
             .create(LocationApiService::class.java)
     }
+}

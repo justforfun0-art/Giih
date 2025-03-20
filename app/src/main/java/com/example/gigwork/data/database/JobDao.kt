@@ -41,15 +41,20 @@ interface JobDao {
     fun searchJobs(query: String): Flow<List<JobEntity>>
 
     @Query("""
-        SELECT * FROM jobs 
-        WHERE ((:latitude - locationLatitude) * (:latitude - locationLatitude) + 
-               (:longitude - locationLongitude) * (:longitude - locationLongitude)) <= :radiusSquared
-        ORDER BY createdAt DESC
-    """)
+    SELECT * FROM jobs 
+    WHERE (
+        6371 * acos(
+            cos(radians(:latitude)) * cos(radians(locationLatitude)) * 
+            cos(radians(locationLongitude) - radians(:longitude)) + 
+            sin(radians(:latitude)) * sin(radians(locationLatitude))
+        )
+    ) <= :radiusInKm
+    ORDER BY createdAt DESC
+""")
     fun getNearbyJobs(
         latitude: Double,
         longitude: Double,
-        radiusSquared: Double
+        radiusInKm: Double
     ): Flow<List<JobEntity>>
 
     @Query("SELECT * FROM jobs WHERE id = :jobId")
@@ -65,10 +70,14 @@ interface JobDao {
     suspend fun deleteJob(jobId: String)
 
     @Query("DELETE FROM jobs WHERE createdAt < :timestamp")
-    suspend fun deleteOldJobs(timestamp: String)
+    suspend fun deleteOldJobs(timestamp: Long)
 
     @Query("DELETE FROM jobs")
     suspend fun clearAllJobs()
+
+    // In JobDao.kt
+    @Query("SELECT * FROM jobs WHERE id IN (:jobIds)")
+    suspend fun getJobsByIds(jobIds: List<String>): List<JobEntity>
 
     @Transaction
     @Query("""
@@ -131,4 +140,30 @@ interface JobDao {
             insertJob(job)
         }
     }
+
+    @Query("""
+    SELECT * FROM jobs 
+    WHERE employerId = :employerId
+    AND (:query IS NULL OR title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%')
+    AND (:status IS NULL OR status = :status)
+    AND (:minSalary IS NULL OR salary >= :minSalary)
+    AND (:maxSalary IS NULL OR salary <= :maxSalary)
+    AND (:state IS NULL OR locationstate = :state)
+    AND (:district IS NULL OR locationdistrict = :district)
+    ORDER BY createdAt DESC
+    LIMIT :limit OFFSET :offset
+""")
+
+
+    fun getFilteredEmployerJobs(
+        employerId: String,
+        query: String?,
+        status: String?,
+        minSalary: Double?,
+        maxSalary: Double?,
+        state: String?,
+        district: String?,
+        limit: Int,
+        offset: Int
+    ): Flow<List<JobEntity>>
 }

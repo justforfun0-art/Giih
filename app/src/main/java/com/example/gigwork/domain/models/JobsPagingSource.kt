@@ -1,9 +1,11 @@
-package com.example.gigwork.data.paging
+package com.example.gigwork.domain.models
 
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
+import com.example.gigwork.core.result.ApiResult
 import com.example.gigwork.domain.models.Job
 import com.example.gigwork.domain.repository.JobRepository
+import kotlinx.coroutines.flow.first
 
 class JobsPagingSource(
     private val jobRepository: JobRepository,
@@ -34,7 +36,7 @@ class JobsPagingSource(
             }
 
             return when (val result = response.first()) {
-                is Result.Success -> {
+                is ApiResult.Success -> {
                     val jobs = result.data
                     LoadResult.Page(
                         data = jobs,
@@ -42,11 +44,11 @@ class JobsPagingSource(
                         nextKey = if (jobs.isEmpty()) null else page + 1
                     )
                 }
-                is Result.Error -> {
-                    LoadResult.Error(result.exception)
+                is ApiResult.Error -> {
+                    LoadResult.Error(Exception(result.error.message))
                 }
-                is Result.Loading -> {
-                    LoadResult.Error(Exception("Unexpected loading state"))
+                is ApiResult.Loading -> {
+                    LoadResult.Error(Exception("Loading state should not be emitted"))
                 }
             }
         } catch (e: Exception) {

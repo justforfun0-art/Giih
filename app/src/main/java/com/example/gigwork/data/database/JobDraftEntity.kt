@@ -1,4 +1,3 @@
-// data/database/entity/JobDraftEntity.kt
 package com.example.gigwork.data.database
 
 import androidx.room.Entity
@@ -7,7 +6,6 @@ import androidx.room.TypeConverters
 import com.example.gigwork.data.database.LocationConverter
 import com.example.gigwork.domain.models.Location
 import com.example.gigwork.presentation.states.JobDraft
-import java.time.Instant
 
 @Entity(tableName = "job_drafts")
 @TypeConverters(LocationConverter::class)
@@ -21,8 +19,8 @@ data class JobDraftEntity(
     val workDuration: Int,
     val workDurationUnit: String,
     val location: Location,
-    val createdAt: Long = Instant.now().toEpochMilli(),
-    val updatedAt: Long = Instant.now().toEpochMilli(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
     val lastModified: Long
 )
 

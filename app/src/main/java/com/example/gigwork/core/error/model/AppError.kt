@@ -1,14 +1,11 @@
-// core/error/model/AppError.kt
 package com.example.gigwork.core.error.model
 
 sealed class AppError(
-    open val message: String,
-    open val cause: Throwable? = null,
+    override val message: String,
+    override val cause: Throwable? = null,
     open val errorCode: String? = null
-) {
-
+) : Exception(message, cause) {  // Make AppError extend Exception
     companion object {
-        // Error code prefixes
         private const val NETWORK_ERROR = "NET"
         private const val DATABASE_ERROR = "DB"
         private const val VALIDATION_ERROR = "VAL"
@@ -18,6 +15,7 @@ sealed class AppError(
         private const val FILE_ERROR = "FILE"
         private const val CACHE_ERROR = "CACHE"
     }
+
 
     data class NetworkError(
         override val message: String,
@@ -71,7 +69,7 @@ sealed class AppError(
         override val cause: Throwable? = null,
         override val errorCode: String? = null,
         val key: String? = null,
-        val operation: CacheError.CacheOperation? = null
+        val operation: CacheOperation? = null
     ) : AppError(message, cause, errorCode) {
         enum class CacheOperation {
             GET, PUT, REMOVE, CLEAR
@@ -104,7 +102,7 @@ sealed class AppError(
         is NetworkError -> isConnectionError || (httpCode in 500..599)
         is DatabaseError -> true
         is FileError -> operation != FileError.FileOperation.DELETE
-        is CacheError -> operation != CacheOperation.CLEAR
+        is CacheError -> operation != CacheError.CacheOperation.CLEAR
         is SecurityError -> securityDomain == "authentication"
         else -> false
     }

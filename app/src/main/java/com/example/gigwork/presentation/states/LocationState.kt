@@ -2,6 +2,7 @@ package com.example.gigwork.presentation.states
 
 import com.example.gigwork.core.error.model.ErrorMessage
 import com.example.gigwork.presentation.base.UiState
+import com.example.gigwork.presentation.events.LocationEvent
 
 data class LocationState(
     // Data States
@@ -15,11 +16,11 @@ data class LocationState(
     // Loading States
     val isLoadingStates: Boolean = false,
     val isLoadingDistricts: Boolean = false,
-    val isLoading: Boolean = false,
+    override val isLoading: Boolean = false,
     val isResolvingLocation: Boolean = false,
 
     // Error States
-    val errorMessage: ErrorMessage? = null,
+    override val errorMessage: ErrorMessage? = null,
     val validationError: String? = null,
     val locationError: LocationError? = null,
 
@@ -45,11 +46,20 @@ data class LocationState(
     val hasLocationPermission: Boolean = false,
     val isLocationEnabled: Boolean = false,
 
+
+
     // UI States
     val isMapVisible: Boolean = false,
     val mapZoomLevel: Float = 12f,
     val selectedTab: LocationTab = LocationTab.LIST
 ) : UiState<LocationState> {
+
+    override fun copy(isLoading: Boolean, errorMessage: ErrorMessage?): LocationState {
+        return copy(
+            isLoading = isLoading,
+            errorMessage = errorMessage
+        )
+    }
 
     // Helper functions
     fun isLocationSelected(): Boolean =
@@ -74,60 +84,6 @@ data class LocationState(
         is LocationError.ResolutionFailed -> "Failed to resolve location"
         null -> null
     }
-}
-
-sealed class LocationEvent {
-    data class LocationSelected(
-        val state: String,
-        val district: String,
-        val timestamp: Long = System.currentTimeMillis()
-    ) : LocationEvent()
-
-    data class CoordinatesUpdated(
-        val latitude: Double,
-        val longitude: Double,
-        val address: String? = null,
-        val accuracy: Float? = null
-    ) : LocationEvent()
-
-    data class ValidationError(
-        val message: String,
-        val field: String? = null
-    ) : LocationEvent()
-
-    data class LocationResolved(
-        val state: String,
-        val district: String,
-        val fullAddress: String,
-        val pinCode: String? = null,
-        val landmark: String? = null
-    ) : LocationEvent()
-
-    data class LocationSaved(
-        val location: FavoriteLocation
-    ) : LocationEvent()
-
-    data class LocationSearched(
-        val query: String,
-        val results: List<LocationSearchResult>
-    ) : LocationEvent()
-
-    data class PermissionResult(
-        val granted: Boolean,
-        val shouldShowRationale: Boolean
-    ) : LocationEvent()
-
-    data class MapMoved(
-        val newLatitude: Double,
-        val newLongitude: Double,
-        val zoomLevel: Float
-    ) : LocationEvent()
-
-    object ClearSelection : LocationEvent()
-    object LoadingStarted : LocationEvent()
-    object LoadingCompleted : LocationEvent()
-    object RequestLocationPermission : LocationEvent()
-    object OpenLocationSettings : LocationEvent()
 }
 
 // Supporting data classes

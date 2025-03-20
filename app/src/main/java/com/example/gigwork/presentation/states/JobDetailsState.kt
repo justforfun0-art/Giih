@@ -2,11 +2,13 @@ package com.example.gigwork.presentation.states
 
 import com.example.gigwork.core.error.model.ErrorMessage
 import com.example.gigwork.domain.models.Job
+import com.example.gigwork.presentation.base.UiEvent
 import com.example.gigwork.presentation.base.UiState
 
 data class JobDetailsState(
-    val isLoading: Boolean = false,
-    val errorMessage: ErrorMessage? = null,
+    override val isLoading: Boolean = false,
+    override val errorMessage: ErrorMessage? = null,
+
     // Job Data
     val job: Job? = null,
     val jobMetrics: JobMetrics? = null,
@@ -31,7 +33,33 @@ data class JobDetailsState(
     // Location & Metrics
     val distanceFromUser: Double? = null,
     val employerRating: Double? = null,
-) : UiState
+) : UiState<JobDetailsState> {
+
+    override fun copy(
+        isLoading: Boolean,
+        errorMessage: ErrorMessage?
+    ): JobDetailsState {
+        return copy(
+            isLoading = isLoading,
+            errorMessage = errorMessage,
+            job = this.job,
+            jobMetrics = this.jobMetrics,
+            similarJobs = this.similarJobs,
+            isApplied = this.isApplied,
+            canApply = this.canApply,
+            isApplying = this.isApplying,
+            applicationStatus = this.applicationStatus,
+            isUpdating = this.isUpdating,
+            isBookmarking = this.isBookmarking,
+            isReporting = this.isReporting,
+            canUpdate = this.canUpdate,
+            successMessage = this.successMessage,
+            validationErrors = this.validationErrors,
+            distanceFromUser = this.distanceFromUser,
+            employerRating = this.employerRating
+        )
+    }
+}
 
 data class JobMetrics(
     val totalCost: Double = 0.0,
@@ -46,7 +74,7 @@ data class JobMetrics(
     val employerRating: Double = 0.0
 )
 
-sealed class JobDetailsEvent {
+sealed class JobDetailsEvent : UiEvent {
     data class ApplicationSubmitted(val jobId: String) : JobDetailsEvent()
     data class StatusUpdated(val newStatus: String) : JobDetailsEvent()
     data class NavigateToChat(

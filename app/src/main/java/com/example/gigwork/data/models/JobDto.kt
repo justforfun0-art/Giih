@@ -1,7 +1,10 @@
-// data/models/JobDto.kt
+@file:OptIn(InternalSerializationApi::class)
+
 package com.example.gigwork.data.models
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.InternalSerializationApi
+import com.example.gigwork.data.mappers.LocationDto
 
 @Serializable
 data class JobDto(
@@ -12,24 +15,8 @@ data class JobDto(
     val employerId: String,
     val location: LocationDto,
     val status: String,
-    val createdAt: String
-)
-
-@Serializable
-data class LocationDto(
-    val state: String,
-    val district: String,
-    val latitude: Double? = null,
-    val longitude: Double? = null
-)
-
-// Add mapper function to convert to domain model
-fun JobDto.toDomainModel() = Job(
-    id = id,
-    title = title,
-    description = description,
-    salary = salary,
-    location = location.toDomainModel(),
-    status = status,
-    createdAt = createdAt
+    val createdAt: String,
+    val salaryUnit: String,
+    val workDuration: Int,
+    val workDurationUnit: String
 )

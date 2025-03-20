@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "354061406902",
+    "project_id": "gigwork-3de7b",
+    "storage_bucket": "gigwork-3de7b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:354061406902:android:72fd8b93ef2d813584cc17",
+        "android_client_info": {
+          "package_name": "com.example.gigwork"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "354061406902-sjhc1iuolh8qtace0sgu9e07jmftr34u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAxQerrLY-AqLSbDMQUXOUsV0wQIt7zRWw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "354061406902-sjhc1iuolh8qtace0sgu9e07jmftr34u.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

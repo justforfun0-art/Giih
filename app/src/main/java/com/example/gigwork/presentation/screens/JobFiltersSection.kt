@@ -1,9 +1,9 @@
-// presentation/screens/JobFiltersSection.kt
 package com.example.gigwork.presentation.screens
 
-import androidx.compose.animation.*
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -11,11 +11,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.gigwork.presentation.common.LocationSelector
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.gigwork.presentation.viewmodels.LocationViewModel
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.unit.Constraints
+import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,7 +28,7 @@ fun JobFiltersSection(
     selectedDistrict: String?,
     minSalary: Double?,
     maxSalary: Double?,
-    onApplyFilters: (String?, String?, Double?, Double?) -> Unit,
+    onApplyFilters: (String?, String?, Double?, Double?, String?) -> Unit,
     onClearFilters: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -34,6 +38,7 @@ fun JobFiltersSection(
     var tempMaxSalary by remember(maxSalary) {
         mutableStateOf(maxSalary?.toString() ?: "")
     }
+    var selectedDuration by remember { mutableStateOf<String?>(null) }
 
     Card(
         modifier = modifier
@@ -49,124 +54,50 @@ fun JobFiltersSection(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Filters",
-                    style = MaterialTheme.typography.titleLarge
-                )
-
-                IconButton(onClick = onClearFilters) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear Filters"
-                    )
-                }
-            }
+            FilterHeader(onClearFilters)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Location Selection
-            Text(
-                text = "Location",
-                style = MaterialTheme.typography.titleMedium
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LocationSelector(
+            LocationSection(
+                selectedState = selectedState,
+                selectedDistrict = selectedDistrict,
                 onLocationSelected = { state, district ->
                     onApplyFilters(
                         state,
                         district,
                         tempMinSalary.toDoubleOrNull(),
-                        tempMaxSalary.toDoubleOrNull()
+                        tempMaxSalary.toDoubleOrNull(),
+                        selectedDuration
                     )
                 }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Salary Range
-            Text(
-                text = "Salary Range",
-                style = MaterialTheme.typography.titleMedium
+            SalaryRangeSection(
+                tempMinSalary = tempMinSalary,
+                tempMaxSalary = tempMaxSalary,
+                onMinSalaryChange = { tempMinSalary = it },
+                onMaxSalaryChange = { tempMaxSalary = it }
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = tempMinSalary,
-                    onValueChange = { tempMinSalary = it },
-                    label = { Text("Min Salary") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    prefix = { Text("₹") }
-                )
-
-                OutlinedTextField(
-                    value = tempMaxSalary,
-                    onValueChange = { tempMaxSalary = it },
-                    label = { Text("Max Salary") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    prefix = { Text("₹") }
-                )
-            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Filter Chips
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                var selectedDuration by remember { mutableStateOf<String?>(null) }
-
-                FilterChip(
-                    selected = selectedDuration == "hourly",
-                    onClick = { selectedDuration = "hourly" },
-                    label = { Text("Hourly") }
-                )
-
-                FilterChip(
-                    selected = selectedDuration == "daily",
-                    onClick = { selectedDuration = "daily" },
-                    label = { Text("Daily") }
-                )
-
-                FilterChip(
-                    selected = selectedDuration == "weekly",
-                    onClick = { selectedDuration = "weekly" },
-                    label = { Text("Weekly") }
-                )
-
-                FilterChip(
-                    selected = selectedDuration == "monthly",
-                    onClick = { selectedDuration = "monthly" },
-                    label = { Text("Monthly") }
-                )
-            }
+            DurationFilterSection(
+                selectedDuration = selectedDuration,
+                onDurationSelected = { selectedDuration = it }
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Apply Button
             Button(
                 onClick = {
                     onApplyFilters(
                         selectedState,
                         selectedDistrict,
                         tempMinSalary.toDoubleOrNull(),
-                        tempMaxSalary.toDoubleOrNull()
+                        tempMaxSalary.toDoubleOrNull(),
+                        selectedDuration
                     )
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -178,6 +109,110 @@ fun JobFiltersSection(
 }
 
 @Composable
+private fun FilterHeader(onClearFilters: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Filters",
+            style = MaterialTheme.typography.titleLarge
+        )
+        IconButton(onClick = onClearFilters) {
+            Icon(
+                imageVector = Icons.Default.Clear,
+                contentDescription = "Clear Filters"
+            )
+        }
+    }
+}
+
+@Composable
+private fun LocationSection(
+    selectedState: String?,
+    selectedDistrict: String?,
+    onLocationSelected: (String?, String?) -> Unit
+) {
+    Text(
+        text = "Location",
+        style = MaterialTheme.typography.titleMedium
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    LocationSelector(
+        selectedState = selectedState ?: "",
+        selectedDistrict = selectedDistrict ?: "",
+        onLocationSelected = { state, district ->
+            onLocationSelected(
+                state.takeIf { it.isNotEmpty() },
+                district.takeIf { it.isNotEmpty() }
+            )
+        }
+    )
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SalaryRangeSection(
+    tempMinSalary: String,
+    tempMaxSalary: String,
+    onMinSalaryChange: (String) -> Unit,
+    onMaxSalaryChange: (String) -> Unit
+) {
+    Text(
+        text = "Salary Range",
+        style = MaterialTheme.typography.titleMedium
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedTextField(
+            value = tempMinSalary,
+            onValueChange = onMinSalaryChange,
+            label = { Text("Min Salary") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+            prefix = { Text("₹") }
+        )
+        OutlinedTextField(
+            value = tempMaxSalary,
+            onValueChange = onMaxSalaryChange,
+            label = { Text("Max Salary") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+            prefix = { Text("₹") }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DurationFilterSection(
+    selectedDuration: String?,
+    onDurationSelected: (String) -> Unit
+) {
+    Text(
+        text = "Duration",
+        style = MaterialTheme.typography.titleMedium
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf("hourly", "daily", "weekly", "monthly").forEach { duration ->
+            FilterChip(
+                selected = selectedDuration == duration,
+                onClick = { onDurationSelected(duration) },
+                label = { Text(duration.capitalize()) },
+                modifier = Modifier.padding(end = 8.dp)
+            )
+        }
+    }
+}
+@Composable
 private fun FlowRow(
     modifier: Modifier = Modifier,
     horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
@@ -187,53 +222,67 @@ private fun FlowRow(
     Layout(
         content = content,
         modifier = modifier
-    ) { measurables, constraints ->
-        val rows = mutableListOf<MutableList<Int>>()
-        val itemConstraints = constraints.copy(minWidth = 0)
+    ) { measurables: List<Measurable>, constraints: Constraints ->
+        val spacingPx = 8.dp.roundToPx()
+        val rowPlacements = mutableListOf<RowItemPlacement>()
+        var currentX = 0
+        var currentY = 0
+        var rowMaxHeight = 0
 
-        val placeables = measurables.map { measurable ->
-            measurable.measure(itemConstraints)
-        }
+        measurables.forEach { measurable ->
+            val placeable = measurable.measure(
+                Constraints(
+                    maxWidth = constraints.maxWidth,
+                    maxHeight = constraints.maxHeight
+                )
+            )
 
-        var currentRow = mutableListOf<Int>()
-        var currentRowWidth = 0
-
-        placeables.forEachIndexed { index, placeable ->
-            if (currentRowWidth + placeable.width > constraints.maxWidth) {
-                rows.add(currentRow)
-                currentRow = mutableListOf(index)
-                currentRowWidth = placeable.width
-            } else {
-                currentRow.add(index)
-                currentRowWidth += placeable.width
+            if (currentX + placeable.width > constraints.maxWidth && currentX > 0) {
+                currentY += rowMaxHeight + spacingPx
+                currentX = 0
+                rowMaxHeight = 0
             }
+
+            rowPlacements.add(
+                RowItemPlacement(
+                    x = currentX,
+                    y = currentY,
+                    placeable = placeable
+                )
+            )
+
+            currentX += placeable.width + spacingPx
+            rowMaxHeight = max(rowMaxHeight, placeable.height)
         }
-        if (currentRow.isNotEmpty()) rows.add(currentRow)
 
-        val height = rows.sumOf { row ->
-            row.maxOf { placeables[it].height }
+        val totalHeight = if (rowPlacements.isEmpty()) {
+            0
+        } else {
+            rowPlacements.maxOf { it.y + it.placeable.height }
         }
 
-        layout(constraints.maxWidth, height) {
-            var y = 0
-            rows.forEach { row ->
-                var x = 0
-                val maxHeight = row.maxOf { placeables[it].height }
-
-                row.forEach { index ->
-                    val placeable = placeables[index]
-                    placeable.place(
-                        x = x,
-                        y = y + (maxHeight - placeable.height) / 2
-                    )
-                    x += placeable.width
-                }
-                y += maxHeight
+        layout(constraints.maxWidth, totalHeight) {
+            rowPlacements.forEach { placement ->
+                placement.placeable.placeRelative(
+                    x = placement.x,
+                    y = placement.y
+                )
             }
         }
     }
 }
 
+private data class RowItemPlacement(
+    val x: Int,
+    val y: Int,
+    val placeable: Placeable
+)
+
+private data class RowPlacement(
+    val x: Int,
+    val y: Int,
+    val placeable: Placeable
+)
 @Preview(showBackground = true)
 @Composable
 fun JobFiltersSectionPreview() {
@@ -243,8 +292,12 @@ fun JobFiltersSectionPreview() {
             selectedDistrict = null,
             minSalary = null,
             maxSalary = null,
-            onApplyFilters = { _, _, _, _ -> },
+            onApplyFilters = { _, _, _, _, _ -> },
             onClearFilters = { }
         )
     }
+}
+
+private fun String.capitalize(): String {
+    return this.replaceFirstChar { it.uppercase() }
 }

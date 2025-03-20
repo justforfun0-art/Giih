@@ -1,13 +1,9 @@
 package com.example.gigwork.presentation.screens
 
-import androidx.compose.animation.*
+import com.example.gigwork.presentation.common.LocationSelector
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
-import androidx.compose.material.pullrefresh.pullRefresh
-import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,25 +15,38 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.paging.LoadState
-import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.items
 import com.example.gigwork.domain.models.Job
-import com.example.gigwork.presentation.screens.common.ScreenScaffold
 import com.example.gigwork.presentation.components.JobSkeletonList
+import com.example.gigwork.presentation.screens.common.ScreenScaffold
+import com.example.gigwork.presentation.states.JobsEvent
 import com.example.gigwork.presentation.viewmodels.JobsViewModel
 import java.text.NumberFormat
-import java.util.Locale
+import java.util.*
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.FloatingActionButton
+import com.example.gigwork.presentation.states.JobsState
+import androidx.compose.animation.AnimatedVisibility
+import coil.ImageLoader
+import com.example.gigwork.presentation.components.jobs.JobCard
+import com.example.gigwork.presentation.states.JobsFilterData
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
+
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JobsScreen(
+    userId: String, // Add this parameter
     onJobClick: (String) -> Unit,
     onProfileClick: () -> Unit,
+    imageLoader: ImageLoader,
     viewModel: JobsViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
-    val jobs = viewModel.jobsFlow.collectAsLazyPagingItems()
+    val state by viewModel.state.collectAsState(initial = JobsState())
     var showFilters by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val listState = rememberLazyListState()
@@ -45,59 +54,35 @@ fun JobsScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                is JobsEvent.ScrollToTop -> listState.animateScrollToItem(0)
+                is JobsEvent.NavigateToJobDetail -> onJobClick(event.jobId)
                 is JobsEvent.ShowSnackbar -> {} // Handled by error system
+                is JobsEvent.ScrollToTop -> listState.animateScrollToItem(0)
+                else -> {}
             }
         }
     }
 
-    val pullRefreshState = rememberPullRefreshState(
-        refreshing = state.isRefreshing,
-        onRefresh = viewModel::refresh
-    )
-
     ScreenScaffold(
         errorMessage = state.errorMessage,
-        onErrorDismiss = viewModel::clearError,
-        onErrorAction = viewModel::handleErrorAction,
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text("Available Jobs") },
-                navigationIcon = {
-                    IconButton(onClick = onProfileClick) {
-                        Icon(Icons.Default.Person, "Profile")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showFilters = !showFilters }) {
-                        Icon(
-                            imageVector = if (showFilters) Icons.Default.Close else Icons.Default.FilterList,
-                            contentDescription = if (showFilters) "Hide Filters" else "Show Filters"
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.largeTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            )
-        }
-    ) { padding ->
+        onErrorDismiss = { viewModel.onEvent(JobsEvent.DismissError) },
+        onErrorAction = { action ->
+            viewModel.onEvent(JobsEvent.HandleError(action))
+        },
+        showNavigationBar = true,
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+    ){ padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .pullRefresh(pullRefreshState)
         ) {
             Column {
                 // Search Bar
-                JobSearchBar(
+                SearchBar(
                     query = state.searchQuery,
-                    onQueryChange = viewModel::updateSearchQuery,
+                    onQueryChange = { query ->
+                        viewModel.onEvent(JobsEvent.SearchQueryChanged(query))
+                    },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
 
@@ -107,37 +92,66 @@ fun JobsScreen(
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
-                    JobFiltersSection(
-                        selectedState = state.selectedState,
-                        selectedDistrict = state.selectedDistrict,
+                    JobFilters(
+                        selectedState = state.selectedState ?: "",
+                        selectedDistrict = state.selectedDistrict ?: "",
                         minSalary = state.minSalary,
                         maxSalary = state.maxSalary,
-                        onApplyFilters = viewModel::applyFilters,
-                        onClearFilters = viewModel::clearFilters,
-                        onStateChanged = viewModel::updateSelectedState,
-                        onDistrictChanged = viewModel::updateSelectedDistrict,
-                        onSalaryRangeChanged = viewModel::updateSalaryRange
+                        onApplyFilters = { state, district, min, max ->
+                            viewModel.applyFilters(
+                                JobsFilterData(
+                                    state = state,
+                                    district = district,
+                                    minSalary = min,
+                                    maxSalary = max
+                                )
+                            )
+                            showFilters = false
+                        },
+                        onClearFilters = {
+                            viewModel.refresh()
+                            showFilters = false
+                        },
+                        onLocationSelected = { selectedState, selectedDistrict ->
+                            viewModel.applyFilters(
+                                JobsFilterData(
+                                    state = selectedState,
+                                    district = selectedDistrict,
+                                    minSalary = state.minSalary,
+                                    maxSalary = state.maxSalary
+                                )
+                            )
+                        },
+                        onSalaryRangeChanged = { min, max ->
+                            viewModel.applyFilters(
+                                JobsFilterData(
+                                    state = state.selectedState,
+                                    district = state.selectedDistrict,
+                                    minSalary = min,
+                                    maxSalary = max
+                                )
+                            )
+                        },
+                        imageLoader = imageLoader
                     )
                 }
 
                 when {
-                    jobs.loadState.refresh is LoadState.Loading -> {
+                    state.isLoading -> {
                         JobSkeletonList(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-                    jobs.loadState.refresh is LoadState.Error -> {
-                        val error = (jobs.loadState.refresh as LoadState.Error).error
-                        viewModel.handleLoadError(error)
+                    state.errorMessage != null -> {
                         ErrorContent(
-                            message = error.message ?: "Failed to load jobs",
-                            onRetry = { jobs.retry() }
+                            message = state.errorMessage?.message ?: "Failed to load jobs",
+                            onRetry = { viewModel.onEvent(JobsEvent.Refresh) }
                         )
                     }
-                    jobs.itemCount == 0 -> {
+                    state.jobs.isEmpty() -> {
                         EmptyJobsView(
                             showFilters = showFilters,
-                            onClearFilters = viewModel::clearFilters
+                            onClearFilters = { viewModel.onEvent(JobsEvent.Refresh) }
                         )
                     }
                     else -> {
@@ -147,36 +161,24 @@ fun JobsScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(
-                                items = jobs,
-                                key = { it.id }
-                            ) { job ->
-                                job?.let {
-                                    JobCard(
-                                        job = it,
-                                        onClick = { onJobClick(it.id) }
-                                    )
-                                }
+                                count = state.jobs.size,
+                                key = { index -> state.jobs[index].id }
+                            ) { index ->
+                                JobCard(
+                                    job = state.jobs[index],
+                                    onClick = { onJobClick(state.jobs[index].id) },
+                                    imageLoader = imageLoader,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
 
-                            item {
-                                when (jobs.loadState.append) {
-                                    is LoadState.Loading -> LoadingIndicator()
-                                    is LoadState.Error -> RetryButton(
-                                        onRetry = { jobs.retry() }
-                                    )
-                                    else -> {}
-                                }
+                            if (state.isLoadingNextPage) {
+                                item { LoadingIndicator() }
                             }
                         }
                     }
                 }
             }
-
-            PullRefreshIndicator(
-                refreshing = state.isRefreshing,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
 
             // FAB for refresh
             if (!showFilters) {
@@ -198,9 +200,10 @@ fun JobsScreen(
     }
 }
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun JobSearchBar(
+ fun SearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -224,21 +227,24 @@ private fun JobSearchBar(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun JobFiltersSection(
+private fun JobFilters(
     selectedState: String,
     selectedDistrict: String,
-    minSalary: Int?,
-    maxSalary: Int?,
-    onApplyFilters: () -> Unit,
+    minSalary: Double?,
+    maxSalary: Double?,
+    onApplyFilters: (String, String, Double?, Double?) -> Unit,
     onClearFilters: () -> Unit,
-    onStateChanged: (String) -> Unit,
-    onDistrictChanged: (String) -> Unit,
-    onSalaryRangeChanged: (Int?, Int?) -> Unit,
+    onLocationSelected: (String, String) -> Unit,
+    onSalaryRangeChanged: (Double?, Double?) -> Unit,
+    imageLoader: ImageLoader,
     modifier: Modifier = Modifier
 ) {
     var minSalaryText by remember(minSalary) { mutableStateOf(minSalary?.toString() ?: "") }
     var maxSalaryText by remember(maxSalary) { mutableStateOf(maxSalary?.toString() ?: "") }
+    var currentState by remember { mutableStateOf(selectedState) }
+    var currentDistrict by remember { mutableStateOf(selectedDistrict) }
 
     Column(
         modifier = modifier
@@ -248,11 +254,10 @@ private fun JobFiltersSection(
     ) {
         // Location Selection
         LocationSelector(
-            selectedState = selectedState,
-            selectedDistrict = selectedDistrict,
             onLocationSelected = { state, district ->
-                onStateChanged(state)
-                onDistrictChanged(district)
+                currentState = state
+                currentDistrict = district
+                onLocationSelected(state, district)
             }
         )
 
@@ -272,8 +277,8 @@ private fun JobFiltersSection(
                     onValueChange = { value ->
                         minSalaryText = value
                         onSalaryRangeChanged(
-                            value.toIntOrNull(),
-                            maxSalaryText.toIntOrNull()
+                            value.toDoubleOrNull(),
+                            maxSalaryText.toDoubleOrNull()
                         )
                     },
                     label = { Text("Min") },
@@ -287,8 +292,8 @@ private fun JobFiltersSection(
                     onValueChange = { value ->
                         maxSalaryText = value
                         onSalaryRangeChanged(
-                            minSalaryText.toIntOrNull(),
-                            value.toIntOrNull()
+                            minSalaryText.toDoubleOrNull(),
+                            value.toDoubleOrNull()
                         )
                     },
                     label = { Text("Max") },
@@ -308,14 +313,21 @@ private fun JobFiltersSection(
                 onClick = onClearFilters,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Clear Filters")
+                Text("Clear")
             }
 
             Button(
-                onClick = onApplyFilters,
+                onClick = {
+                    onApplyFilters(
+                        currentState,
+                        currentDistrict,
+                        minSalaryText.toDoubleOrNull(),
+                        maxSalaryText.toDoubleOrNull()
+                    )
+                },
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Apply Filters")
+                Text("Apply")
             }
         }
     }
@@ -325,11 +337,10 @@ private fun JobFiltersSection(
 @Composable
 private fun JobCard(
     job: Job,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     ElevatedCard(
-        onClick = onClick,
+        onClick = {},
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
@@ -393,7 +404,7 @@ private fun JobCard(
 }
 
 @Composable
-private fun JobStatusChip(
+fun JobStatusChip(
     status: String,
     modifier: Modifier = Modifier
 ) {
@@ -420,7 +431,7 @@ private fun JobStatusChip(
 }
 
 @Composable
-private fun EmptyJobsView(
+ fun EmptyJobsView(
     showFilters: Boolean,
     onClearFilters: () -> Unit
 ) {
@@ -540,10 +551,11 @@ private fun RetryButton(
             .padding(16.dp),
         contentAlignment = Alignment.Center
     ) {
-        TextButton(
+        Button(
             onClick = onRetry,
-            colors = ButtonDefaults.textButtonColors(
-                contentColor = MaterialTheme.colorScheme.error
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
             )
         ) {
             Icon(

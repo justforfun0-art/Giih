@@ -15,4 +15,9 @@ object Constants {
         const val EMPLOYEE = "EMPLOYEE"
         const val EMPLOYER = "EMPLOYER"
     }
+
+    object Authentication {
+        const val PHONE_VERIFICATION_TIMEOUT = 60L
+        const val OTP_LENGTH = 6
+    }
 }

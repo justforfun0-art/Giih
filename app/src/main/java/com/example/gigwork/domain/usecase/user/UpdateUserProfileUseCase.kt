@@ -1,16 +1,18 @@
 package com.example.gigwork.domain.usecase.user
 
 import com.example.gigwork.core.error.model.AppError
-import com.example.gigwork.core.result.Result
+import com.example.gigwork.core.error.model.NavigationError
+import com.example.gigwork.core.result.ApiResult
 import com.example.gigwork.di.IoDispatcher
 import com.example.gigwork.domain.models.UserProfile
-import com.example.gigwork.data.repository.UserRepository
+import com.example.gigwork.domain.repository.UserRepository
 import com.example.gigwork.domain.usecase.base.FlowUseCase
 import com.example.gigwork.util.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import java.io.IOException
+import java.sql.SQLException
 import javax.inject.Inject
 
 class UpdateUserProfileUseCase @Inject constructor(
@@ -22,34 +24,52 @@ class UpdateUserProfileUseCase @Inject constructor(
     data class Params(
         val profile: UserProfile
     ) {
-        fun validate(): ValidationResult {
+        fun validate(): ApiResult<Unit> {
             val errors = mutableListOf<ValidationError>()
 
+            // Basic validation
             if (profile.name.isBlank()) {
                 errors.add(ValidationError("Name is required", "name"))
             }
 
-            profile.email?.let { email ->
-                if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-                    errors.add(ValidationError("Invalid email format", "email"))
+            // Employer-specific validations
+            if (profile.companyName?.isBlank() == true) {
+                errors.add(ValidationError("Company name cannot be empty if provided", "company_name"))
+            }
+
+            if (profile.staffCount != null && profile.staffCount < 0) {
+                errors.add(ValidationError("Staff count cannot be negative", "staff_count"))
+            }
+
+            // Location validations
+            // Location validations
+            profile.currentLocation?.let { location ->
+                val isValidLatitude = location.latitude == null || location.latitude in -90.0..90.0
+                val isValidLongitude = location.longitude == null || location.longitude in -180.0..180.0
+                if (!isValidLatitude || !isValidLongitude) {
+                    errors.add(ValidationError("Invalid location coordinates", "current_location"))
                 }
             }
 
-            profile.phone?.let { phone ->
-                if (!phone.matches(Regex("^\\+?[0-9]{10,13}$"))) {
-                    errors.add(ValidationError("Invalid phone number format", "phone"))
+            profile.preferredLocation?.let { location ->
+                val isValidLatitude = location.latitude == null || location.latitude in -90.0..90.0
+                val isValidLongitude = location.longitude == null || location.longitude in -180.0..180.0
+                if (!isValidLatitude || !isValidLongitude) {
+                    errors.add(ValidationError("Invalid location coordinates", "preferred_location"))
                 }
             }
 
             return if (errors.isEmpty()) {
-                ValidationResult.Valid
+                ApiResult.Success(Unit)
             } else {
-                ValidationResult.Invalid(errors)
+                ApiResult.Error(AppError.ValidationError(
+                    message = errors.joinToString("; ") { it.message },
+                    field = errors.firstOrNull()?.field
+                ))
             }
         }
     }
-
-    override suspend fun execute(parameters: Params): Flow<Result<Unit>> = flow {
+    override suspend fun execute(parameters: Params): Flow<Unit> = flow {
         try {
             logger.d(
                 tag = TAG,
@@ -61,13 +81,13 @@ class UpdateUserProfileUseCase @Inject constructor(
             )
 
             when (val validationResult = parameters.validate()) {
-                is ValidationResult.Valid -> {
-                    emit(Result.Loading)
+                is ApiResult.Success<Unit> -> {
                     val startTime = System.currentTimeMillis()
 
-                    userRepository.updateUserProfile(parameters.profile).collect { result ->
-                        when (result) {
-                            is Result.Success -> {
+                    userRepository.updateUserProfile(parameters.profile).collect { apiResult ->
+                        // Convert Result<Unit> to ApiResult<Unit>
+                        apiResult.fold(
+                            onSuccess = {
                                 val duration = System.currentTimeMillis() - startTime
                                 logger.i(
                                     tag = TAG,
@@ -77,69 +97,59 @@ class UpdateUserProfileUseCase @Inject constructor(
                                         "duration_ms" to duration
                                     )
                                 )
-                                emit(Result.Success(Unit))
+                                emit(Unit)
+                            },
+                            onError = { error ->
+                                logger.e(
+                                    tag = TAG,
+                                    message = "Profile update failed",
+                                    throwable = error.cause,
+                                    additionalData = mapOf("user_id" to parameters.profile.userId)
+                                )
+                                throw error.toThrowable()
+                            },
+                            onLoading = {
+                                logger.d(
+                                    tag = TAG,
+                                    message = "Profile update in progress",
+                                    additionalData = mapOf("user_id" to parameters.profile.userId)
+                                )
                             }
-                            is Result.Error -> {
-                                handleError(result.error, parameters)
-                                emit(Result.Error(result.error))
-                            }
-                            is Result.Loading -> emit(Result.Loading)
-                        }
+
+                        )
                     }
                 }
-                is ValidationResult.Invalid -> {
+                is ApiResult.Error -> {
                     logger.w(
                         tag = TAG,
                         message = "Profile validation failed",
                         additionalData = mapOf(
                             "user_id" to parameters.profile.userId,
-                            "validation_errors" to validationResult.errors.joinToString()
+                            "validation_errors" to validationResult.error.message
                         )
                     )
-                    emit(Result.Error(AppError.ValidationError(
-                        message = validationResult.errors.joinToString { it.message },
-                        field = validationResult.errors.firstOrNull()?.field
-                    )))
+                    throw validationResult.error.toThrowable()
+                }
+                else -> {
+                    // Loading state not applicable here
                 }
             }
-        } catch (e: Exception) {
-            handleUnexpectedError(e, parameters)
-            emit(Result.Error(e.toAppError()))
+        } catch (e: Throwable) {
+            logger.e(
+                tag = TAG,
+                message = "Error during profile update",
+                throwable = e,
+                additionalData = mapOf(
+                    "user_id" to parameters.profile.userId,
+                    "error_type" to e::class.simpleName
+                )
+            )
+            throw e
         }
-    }.catch { e ->
-        handleUnexpectedError(e, parameters)
-        emit(Result.Error(e.toAppError()))
     }
-
-    private fun handleError(error: AppError, parameters: Params) {
-        logger.e(
-            tag = TAG,
-            message = "Profile update failed",
-            throwable = error,
-            additionalData = mapOf(
-                "user_id" to parameters.profile.userId,
-                "error_type" to error.javaClass.simpleName
-            )
-        )
-    }
-
-    private fun handleUnexpectedError(error: Throwable, parameters: Params) {
-        logger.e(
-            tag = TAG,
-            message = "Unexpected error during profile update",
-            throwable = error,
-            additionalData = mapOf(
-                "user_id" to parameters.profile.userId,
-                "error_type" to error.javaClass.simpleName
-            )
-        )
-    }
-
     private fun getUpdatedFields(profile: UserProfile): Map<String, Any?> {
         return mapOf(
             "name" to profile.name,
-            "email" to profile.email,
-            "phone" to profile.phone,
             "date_of_birth" to profile.dateOfBirth,
             "gender" to profile.gender,
             "current_location" to profile.currentLocation,
@@ -154,15 +164,31 @@ class UpdateUserProfileUseCase @Inject constructor(
         ).filterValues { it != null }
     }
 
+    private fun AppError.toThrowable(): Throwable = when (this) {
+        is AppError.ValidationError -> IllegalArgumentException(message)
+        is AppError.NetworkError -> IOException(message, cause)
+        is AppError.DatabaseError -> SQLException(message, cause)
+        is AppError.SecurityError -> SecurityException(message, cause)
+        is AppError.FileError -> IOException(message, cause)
+        is AppError.CacheError -> IOException(message, cause)
+        is AppError.BusinessError -> IllegalStateException(message)
+        is AppError.UnexpectedError -> Exception(message, cause)
+
+        // Handle NavigationError subtypes
+        is NavigationError.UnauthorizedNavigation -> SecurityException(message)
+        is NavigationError.InvalidDeepLink -> IllegalArgumentException(message, cause)
+        is NavigationError.NavigationFailed -> RuntimeException(message, cause)
+        is NavigationError.InvalidRoute -> IllegalArgumentException(message)
+
+        // If new error types are added in the future, this else branch will handle them
+        // This ensures the when expression is always exhaustive
+        else -> Exception(message, cause)
+    }
+
     private data class ValidationError(
         val message: String,
         val field: String
     )
-
-    private sealed class ValidationResult {
-        object Valid : ValidationResult()
-        data class Invalid(val errors: List<ValidationError>) : ValidationResult()
-    }
 
     companion object {
         private const val TAG = "UpdateUserProfileUseCase"

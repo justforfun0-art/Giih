@@ -3,26 +3,18 @@ package com.example.gigwork.presentation.base
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.gigwork.core.error.model.ErrorAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
+import com.example.gigwork.core.error.model.ErrorMessage
+import com.example.gigwork.core.error.model.ErrorAction.Dismiss
+import com.example.gigwork.core.error.model.ErrorAction.Multiple
 
-/**
- * Base interface for UI State with copy support
- * @param T the concrete type implementing this interface (must be a data class)
- */
-
-/**
- * Base interface for UI Events
- */
-/**
- * Error message for UI display
- */
-data class ErrorMessage(
+/*data class ErrorMessage(
     val message: String,
     val title: String? = null,
     val level: ErrorLevel = ErrorLevel.ERROR,
@@ -30,9 +22,6 @@ data class ErrorMessage(
     val metadata: Map<String, String> = emptyMap()
 )
 
-/**
- * Error levels indicating severity
- */
 enum class ErrorLevel {
     INFO,
     WARNING,
@@ -40,9 +29,6 @@ enum class ErrorLevel {
     CRITICAL
 }
 
-/**
- * Actions that can be taken in response to errors
- */
 sealed class ErrorAction {
     object Retry : ErrorAction()
     object Dismiss : ErrorAction()
@@ -56,11 +42,8 @@ sealed class ErrorAction {
         fun retryWithDismiss() = Multiple(Retry, Dismiss)
         fun login() = Custom(label = "Login", route = "login_screen")
     }
-}
+}*/
 
-/**
- * Represents different types of app errors
- */
 sealed class AppError(
     override val message: String,
     override val cause: Throwable? = null
@@ -94,25 +77,15 @@ sealed class AppError(
     ) : AppError(message, cause)
 }
 
-/**
- * Interface for global error handling
- */
 interface ErrorHandler {
     fun handle(error: AppError): ErrorMessage
 }
 
-/**
- * Interface for logging
- */
 interface Logger {
     fun debug(tag: String, message: String)
     fun error(tag: String, message: String, throwable: Throwable? = null)
 }
 
-/**
- * Base ViewModel providing common functionality for state management, error handling,
- * and coroutine management
- */
 abstract class BaseErrorViewModel<S : UiState<S>, E : UiEvent>(
     private val savedStateHandle: SavedStateHandle,
     private val errorHandler: ErrorHandler,
@@ -126,29 +99,17 @@ abstract class BaseErrorViewModel<S : UiState<S>, E : UiEvent>(
     private val _events = MutableSharedFlow<E>()
     val events: SharedFlow<E> = _events.asSharedFlow()
 
-    /**
-     * Create initial UI state - must be implemented by subclasses
-     */
     abstract fun createInitialState(): S
 
-    /**
-     * Update state using a reducer function
-     */
-    protected fun setState(reducer: S.() -> S) {
+    protected open fun setState(reducer: S.() -> S) {
         val newState = state.value.reducer()
         _state.value = newState
     }
 
-    /**
-     * Emit a one-time event
-     */
     protected suspend fun emitEvent(event: E) {
         _events.emit(event)
     }
 
-    /**
-     * Launch a coroutine with error handling and loading state
-     */
     protected fun safeLaunch(
         showLoading: Boolean = true,
         onError: (suspend (AppError) -> Unit)? = null,
@@ -173,9 +134,6 @@ abstract class BaseErrorViewModel<S : UiState<S>, E : UiEvent>(
         }
     }
 
-    /**
-     * Execute a flow with error handling and loading state
-     */
     protected fun <T> safeFlow(
         showLoading: Boolean = true,
         onError: (suspend (AppError) -> Unit)? = null,
@@ -203,9 +161,6 @@ abstract class BaseErrorViewModel<S : UiState<S>, E : UiEvent>(
         }
     }
 
-    /**
-     * Execute a suspending operation that returns a result with error handling
-     */
     protected suspend fun <T> safeCall(
         showLoading: Boolean = true,
         onError: (suspend (AppError) -> Unit)? = null,
@@ -236,24 +191,23 @@ abstract class BaseErrorViewModel<S : UiState<S>, E : UiEvent>(
         }
     }
 
-    protected fun handleError(error: AppError) {
+    // Update the handleError function
+    protected fun handleError(error: AppError, key: String = "default") {
         val errorMessage = errorHandler.handle(error)
         setState {
-            @Suppress("UNCHECKED_CAST")
-            this.copy(errorMessage = ErrorMessage) as S
+            copy(errorMessage = errorMessage)
         }
         logError(error)
     }
-
-    protected fun handleErrorAction(action: ErrorAction) {
+    fun handleErrorAction(action: ErrorAction) {
         when (action) {
-            is ErrorAction.Dismiss -> clearError()
-            is ErrorAction.Multiple -> handleErrorAction(action.primary)
+            is Dismiss -> clearError()
+            is Multiple -> handleErrorAction(action.primary)
             else -> clearError()
         }
     }
 
-    protected fun clearError() {
+     fun clearError() {
         setState {
             @Suppress("UNCHECKED_CAST")
             this.copy(errorMessage = null) as S
@@ -293,9 +247,6 @@ abstract class BaseErrorViewModel<S : UiState<S>, E : UiEvent>(
         clearAllSavedState()
     }
 
-    /**
-     * Clear all saved state - override in subclasses if needed
-     */
     protected open fun clearAllSavedState() {
         // Override to clear specific saved state
     }

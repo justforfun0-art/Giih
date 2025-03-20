@@ -9,12 +9,16 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class EncryptedPreferences @Inject constructor(
+class EncryptedPreferences constructor(
     @ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "EncryptedPreferences"
         private const val PREFS_FILENAME = "secure_prefs"
+        // Add these constants at the top of the Companion object
+        private const val KEY_TEMP_PASSWORD = "temp_password"
+        private const val KEY_TEMP_PASSWORD_TIMESTAMP = "temp_password_timestamp"
+        private const val TEMP_PASSWORD_EXPIRY = 5 * 60 * 1000 // 5 minutes in milliseconds
 
         // Keys for stored values
         private const val KEY_SUPABASE_URL = "supabase_url"
@@ -32,7 +36,48 @@ class EncryptedPreferences @Inject constructor(
             throw SecurityException("Failed to create master key", e)
         }
     }
+    fun saveTemporaryPassword(password: String) {
+        try {
+            saveString(KEY_TEMP_PASSWORD, password)
+            saveString(KEY_TEMP_PASSWORD_TIMESTAMP, System.currentTimeMillis().toString())
+            Log.d(TAG, "Temporary password saved successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving temporary password", e)
+        }
+    }
 
+    fun getTemporaryPassword(): String {
+        try {
+            // Check if the temporary password has expired
+            val timestamp = getString(KEY_TEMP_PASSWORD_TIMESTAMP, "0").toLongOrNull() ?: 0L
+            val currentTime = System.currentTimeMillis()
+
+            return if (currentTime - timestamp > TEMP_PASSWORD_EXPIRY) {
+                // Password has expired, clear it and return empty string
+                Log.d(TAG, "Temporary password has expired")
+                clearTemporaryPassword()
+                ""
+            } else {
+                // Return the password
+                val password = getString(KEY_TEMP_PASSWORD, "")
+                Log.d(TAG, "Retrieved temporary password successfully")
+                password
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error retrieving temporary password", e)
+            return ""
+        }
+    }
+
+    fun clearTemporaryPassword() {
+        try {
+            removeKey(KEY_TEMP_PASSWORD)
+            removeKey(KEY_TEMP_PASSWORD_TIMESTAMP)
+            Log.d(TAG, "Temporary password cleared successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing temporary password", e)
+        }
+    }
     private val prefs by lazy {
         try {
             EncryptedSharedPreferences.create(

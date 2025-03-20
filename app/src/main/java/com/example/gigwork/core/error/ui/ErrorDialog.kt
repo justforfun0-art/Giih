@@ -2,7 +2,10 @@ package com.example.gigwork.core.error.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,7 +52,7 @@ fun ErrorDialog(
                 // Error Icon
                 Icon(
                     imageVector = getErrorIcon(errorMessage.level),
-                    contentDescription = null,
+                    contentDescription = "Error Icon",
                     tint = getErrorColor(errorMessage.level),
                     modifier = Modifier.size(48.dp)
                 )
@@ -86,12 +89,12 @@ fun ErrorDialog(
                             TextButton(
                                 onClick = { onAction(action.secondary) }
                             ) {
-                                Text(action.secondary.getActionLabel())
+                                Text(getActionLabel(action.secondary))
                             }
                             Button(
                                 onClick = { onAction(action.primary) }
                             ) {
-                                Text(action.primary.getActionLabel())
+                                Text(getActionLabel(action.primary))
                             }
                         }
                     }
@@ -103,20 +106,28 @@ fun ErrorDialog(
                             Text(action.label)
                         }
                     }
-                    is ErrorAction.Retry -> {
+                    ErrorAction.Retry -> {
                         Button(
-                            onClick = { onAction(action) },
+                            onClick = { onAction(ErrorAction.Retry) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Retry")
                         }
                     }
-                    is ErrorAction.Dismiss -> {
+                    ErrorAction.Dismiss -> {
                         Button(
                             onClick = onDismiss,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("OK")
+                            Text("Dismiss")
+                        }
+                    }
+                    ErrorAction.GoBack -> {
+                        Button(
+                            onClick = { onAction(ErrorAction.GoBack) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Go Back")
                         }
                     }
                     null -> {
@@ -127,8 +138,6 @@ fun ErrorDialog(
                             Text("OK")
                         }
                     }
-
-                    ErrorAction.GoBack -> TODO()
                 }
             }
         }
@@ -136,11 +145,13 @@ fun ErrorDialog(
 }
 
 @Composable
-private fun getErrorColor(level: ErrorLevel) = when (level) {
-    ErrorLevel.CRITICAL -> MaterialTheme.colorScheme.error
-    ErrorLevel.ERROR -> MaterialTheme.colorScheme.error
-    ErrorLevel.WARNING -> MaterialTheme.colorScheme.secondary
-    ErrorLevel.INFO -> MaterialTheme.colorScheme.primary
+private fun getErrorColor(level: ErrorLevel): androidx.compose.ui.graphics.Color {
+    return when (level) {
+        ErrorLevel.CRITICAL -> MaterialTheme.colorScheme.error
+        ErrorLevel.ERROR -> MaterialTheme.colorScheme.error
+        ErrorLevel.WARNING -> MaterialTheme.colorScheme.secondary
+        ErrorLevel.INFO -> MaterialTheme.colorScheme.primary
+    }
 }
 
 private fun getErrorIcon(level: ErrorLevel): ImageVector = when (level) {
@@ -150,10 +161,10 @@ private fun getErrorIcon(level: ErrorLevel): ImageVector = when (level) {
     ErrorLevel.INFO -> Icons.Default.Info
 }
 
-private fun ErrorAction.getActionLabel(): String = when (this) {
+private fun getActionLabel(action: ErrorAction): String = when (action) {
     is ErrorAction.Retry -> "Retry"
     is ErrorAction.Dismiss -> "Dismiss"
-    is ErrorAction.Custom -> this.label
-    is ErrorAction.Multiple -> this.primary.getActionLabel()
-    else -> "OK"
+    is ErrorAction.Custom -> action.label
+    is ErrorAction.Multiple -> getActionLabel(action.primary)
+    ErrorAction.GoBack -> "Go Back"
 }

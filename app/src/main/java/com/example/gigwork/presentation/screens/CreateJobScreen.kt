@@ -14,11 +14,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.gigwork.core.error.model.ErrorLevel
 import com.example.gigwork.core.error.ui.ErrorDialog
-import com.example.gigwork.presentation.components.LoadingButton
-import com.example.gigwork.presentation.components.LocationSelector
+import com.example.gigwork.presentation.common.LoadingButton
+import com.example.gigwork.presentation.common.LocationSelector
 import com.example.gigwork.presentation.screens.common.ScreenScaffold
 import com.example.gigwork.presentation.viewmodels.CreateJobViewModel
-import com.example.gigwork.presentation.viewmodels.CreateJobEvent
+import com.example.gigwork.presentation.states.CreateJobEvent
+import com.example.gigwork.presentation.states.JobsEvent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +38,15 @@ fun CreateJobScreen(
                 is CreateJobEvent.ValidationError -> {
                     // ValidationErrors are now handled through the state
                 }
+                is CreateJobEvent.CoordinatesUpdated -> {}
+                is CreateJobEvent.CostCalculated -> {}
+                is CreateJobEvent.DraftDeleted -> {}
+                is CreateJobEvent.DraftSaved -> {}
+                is CreateJobEvent.JobCreated -> {}
+                is CreateJobEvent.LocationSelected -> {}
+                is CreateJobEvent.PreviewToggled -> {}
+                is CreateJobEvent.ShowSnackbar -> {}
+                // Add other events mentioned in the error message
             }
         }
     }
@@ -74,7 +84,7 @@ fun CreateJobScreen(
                     isError = "title" in uiState.validationErrors,
                     supportingText = {
                         uiState.validationErrors["title"]?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error)
+                            Text(it.message, color = MaterialTheme.colorScheme.error)
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -90,7 +100,7 @@ fun CreateJobScreen(
                     isError = "description" in uiState.validationErrors,
                     supportingText = {
                         uiState.validationErrors["description"]?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error)
+                            Text(it.message, color = MaterialTheme.colorScheme.error)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -111,7 +121,7 @@ fun CreateJobScreen(
                         isError = "salary" in uiState.validationErrors,
                         supportingText = {
                             uiState.validationErrors["salary"]?.let {
-                                Text(it, color = MaterialTheme.colorScheme.error)
+                                Text(it.message, color = MaterialTheme.colorScheme.error)
                             }
                         },
                         modifier = Modifier.weight(1f)
@@ -162,7 +172,7 @@ fun CreateJobScreen(
                         isError = "workDuration" in uiState.validationErrors,
                         supportingText = {
                             uiState.validationErrors["workDuration"]?.let {
-                                Text(it, color = MaterialTheme.colorScheme.error)
+                                Text(it.message, color = MaterialTheme.colorScheme.error)
                             }
                         },
                         modifier = Modifier.weight(1f)

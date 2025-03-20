@@ -1,4 +1,3 @@
-// core/error/ExceptionMapper.kt
 package com.example.gigwork.core.error
 
 import com.example.gigwork.core.error.model.AppError
@@ -32,17 +31,19 @@ object ExceptionMapper {
     }
 
     private fun mapHttpException(exception: HttpException): AppError.NetworkError {
+        val message = when (exception.code()) {
+            401 -> "Unauthorized access"
+            403 -> "Access forbidden"
+            404 -> "Resource not found"
+            in 500..599 -> "Server error occurred"
+            else -> exception.message()
+        }
         return AppError.NetworkError(
-            message = when (exception.code()) {
-                401 -> "Unauthorized access"
-                403 -> "Access forbidden"
-                404 -> "Resource not found"
-                in 500..599 -> "Server error occurred"
-                else -> exception.message()
-            },
+            message = message,
             cause = exception,
             httpCode = exception.code(),
-            errorCode = "NET_HTTP_${exception.code()}"
+            errorCode = "NET_HTTP_${exception.code()}",
+            isConnectionError = false
         )
     }
 }

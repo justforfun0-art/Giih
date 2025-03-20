@@ -13,17 +13,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.gigwork.core.error.ui.ErrorDialog
 import com.example.gigwork.core.error.ui.ErrorSnackbar
 import com.example.gigwork.presentation.viewmodels.FileUploadViewModel
 import com.example.gigwork.core.error.model.ErrorLevel
+import com.example.gigwork.presentation.viewmodels.FileUploadEvent
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -251,7 +250,6 @@ private fun FileSelectionArea(
         }
     }
 }
-
 @Composable
 private fun UploadProgress(
     progress: Float,
@@ -263,7 +261,7 @@ private fun UploadProgress(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         LinearProgressIndicator(
-            progress = { progress },
+            progress = progress,  // Changed from { progress } to progress
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.primary,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
@@ -282,7 +280,6 @@ private fun UploadProgress(
         )
     }
 }
-
 private fun formatFileSize(size: Long): String {
     return when {
         size < 1024 -> "$size B"
