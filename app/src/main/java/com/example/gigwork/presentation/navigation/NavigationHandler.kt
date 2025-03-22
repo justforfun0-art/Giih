@@ -20,15 +20,24 @@ class NavigationHandler(
     private val coroutineScope: CoroutineScope,
     private val navController: NavController
 ) {
+    private var lastNavigationTime = 0L
+    private val navigationDebounceTime = 300L // 300ms debounce
     /**
      * Handles a UserAction, processing navigation actions and returning false
      * for actions that should be passed to the original handler.
      *
      * @return true if the action was handled, false otherwise
      */
+
     fun handleAction(action: UserAction): Boolean {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastNavigationTime < navigationDebounceTime) {
+            return true // Ignore rapid navigation requests
+        }
+
         return when (action) {
             is UserAction.Navigate -> {
+                lastNavigationTime = currentTime
                 coroutineScope.launch {
                     navigationState.navigateTo(action.route)
                 }

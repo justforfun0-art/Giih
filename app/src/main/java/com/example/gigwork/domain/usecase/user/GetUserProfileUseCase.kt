@@ -12,7 +12,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.flowOn
 import javax.inject.Inject
 
 /**
@@ -29,69 +29,53 @@ class GetUserProfileUseCase @Inject constructor(
      * @param userId The ID of the user to retrieve
      * @return Flow of ApiResult containing the User if successful
      */
-    suspend operator fun invoke(userId: String): Flow<ApiResult<User>> = flow {
+    operator fun invoke(userId: String): Flow<ApiResult<User>> = flow {
         require(userId.isNotBlank()) { "User ID cannot be empty" }
 
         emit(ApiResult.Loading)
 
-        try {
-            withContext(dispatcher) {
-                val userResultFlow = userRepository.getUser(userId)
-                userResultFlow.collect { apiResult ->
-                    // Using fold to handle the ApiResult states
-                    apiResult.fold(
-                        onSuccess = { user ->
-                            emit(ApiResult.Success(user))
-                        },
-                        onError = { error ->
-                            emit(ApiResult.Error(error))
-                        },
-                        onLoading = {
-                            emit(ApiResult.Loading)
-                        }
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            emit(
-                ApiResult.Error(
-                    AppError.UnexpectedError(
-                        message = e.message ?: "Failed to get user profile",
-                        cause = e
-                    )
-                )
+        userRepository.getUser(userId).collect { apiResult ->
+            apiResult.fold(
+                onSuccess = { user -> emit(ApiResult.Success(user)) },
+                onError = { error -> emit(ApiResult.Error(error)) },
+                onLoading = { emit(ApiResult.Loading) }
             )
         }
-    }
-
-    /**
-     * Retrieves the current user's profile.
-     *
-     * @return Flow of ApiResult containing the User if successful
-     */
-    suspend operator fun invoke(): Flow<ApiResult<User>> = flow {
-        userRepository.getUserProfile()
-            .catch { cause ->
-                emit(ApiResult.Error(ExceptionMapper.map(cause, "PROFILE_FLOW_ERROR")))
-            }
-            .collect { result ->
-                result.fold(
-                    onSuccess = { profile ->
-                        emit(ApiResult.Success(userProfileToUser(profile)))
-                    },
-                    onError = { error ->
-                        emit(ApiResult.Error(error))
-                    },
-                    onLoading = {
-                        emit(ApiResult.Loading)
-                    }
+    }.catch { e ->
+        emit(
+            ApiResult.Error(
+                AppError.UnexpectedError(
+                    message = e.message ?: "Failed to get user profile",
+                    cause = e
                 )
-            }
-    }.catch { cause ->
-        emit(ApiResult.Error(ExceptionMapper.map(cause, "PROFILE_FLOW_ERROR")))
-    }
+            )
+        )
+    }.flowOn(dispatcher)
 
 
+    operator fun invoke(): Flow<ApiResult<User>> = flow {
+        emit(ApiResult.Loading)
+
+        userRepository.getUserProfile().collect { result ->
+            result.fold(
+                onSuccess = { userProfile ->
+                    val user = userProfileToUser(userProfile)
+                    emit(ApiResult.Success(user))
+                },
+                onError = { error -> emit(ApiResult.Error(error)) },
+                onLoading = { emit(ApiResult.Loading) }
+            )
+        }
+    }.catch { e ->
+        emit(
+            ApiResult.Error(
+                AppError.UnexpectedError(
+                    message = e.message ?: "Failed to get current user profile",
+                    cause = e
+                )
+            )
+        )
+    }.flowOn(dispatcher)
 
     /**
      * Helper function to convert UserProfile to User

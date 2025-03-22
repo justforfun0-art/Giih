@@ -107,7 +107,10 @@ class JobsScreenTest {
     fun filterSection_showsAndHidesCorrectly() {
         composeTestRule.setContent {
             GigWorkTheme {
+
                 JobsScreen(
+
+                    userId = "test-user-id",
                     onJobClick = {},
                     onProfileClick = {},
                     imageLoader = ImageLoader(ApplicationProvider.getApplicationContext()),

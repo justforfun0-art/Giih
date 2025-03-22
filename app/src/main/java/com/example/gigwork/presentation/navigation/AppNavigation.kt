@@ -29,17 +29,19 @@ import com.example.gigwork.presentation.viewmodels.AuthViewModel
 class AppNavigationBuilders {
 
 
+    // In AppNavigation.kt - addWelcomeScreen()
     fun addWelcomeScreen(navGraphBuilder: NavGraphBuilder, navController: NavHostController) {
         navGraphBuilder.composable(Screen.Welcome.route) {
             WelcomeScreen(
                 onNavigateToEmployeeAuth = {
-                    // Use launchSingleTop to prevent multiple instances
                     navController.navigate(Screen.Login.createRoute(UserType.EMPLOYEE.name)) {
+                        popUpTo(Screen.Welcome.route) { inclusive = true } // Clear back stack
                         launchSingleTop = true
                     }
                 },
                 onNavigateToEmployerAuth = {
                     navController.navigate(Screen.Login.createRoute(UserType.EMPLOYER.name)) {
+                        popUpTo(Screen.Welcome.route) { inclusive = true }
                         launchSingleTop = true
                     }
                 }

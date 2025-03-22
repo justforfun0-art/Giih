@@ -54,22 +54,18 @@ fun AnimatedNavigation(
         startDestination = startDestination,
         enterTransition = {
             when {
-                transitionManager.isModalScreen(targetState.destination.route ?: "") ->
-                    fadeIn(tween(300))
-                else -> fadeIn(tween(300)) + slideInHorizontally(
-                    tween(300),
-                    initialOffsetX = { 1000 }
-                )
+                initialState.destination.route == Screen.Welcome.route ||
+                        targetState.destination.route == Screen.Welcome.route ->
+                    fadeIn(tween(150)) // Faster, simpler transition for welcome screen
+                else -> fadeIn(tween(300))
             }
         },
         exitTransition = {
             when {
-                transitionManager.isModalScreen(initialState.destination.route ?: "") ->
-                    fadeOut(tween(300))
-                else -> fadeOut(tween(300)) + slideOutHorizontally(
-                    tween(300),
-                    targetOffsetX = { -1000 }
-                )
+                initialState.destination.route == Screen.Welcome.route ||
+                        targetState.destination.route == Screen.Welcome.route ->
+                    fadeOut(tween(150)) // Faster, simpler transition for welcome screen
+                else -> fadeOut(tween(300))
             }
         },
         popEnterTransition = {

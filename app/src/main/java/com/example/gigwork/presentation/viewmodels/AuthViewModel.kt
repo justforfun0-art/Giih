@@ -72,6 +72,7 @@ class AuthViewModel @Inject constructor(
         private const val KEY_USER_TYPE = "userType"
         private const val KEY_VERIFICATION_ID = "verificationId"
         private const val KEY_PHONE_NUMBER = "phoneNumber"
+        private const val KEY_PROCESSING_USER_TYPE = "processing_user_type"
 
         // Constants from PhoneAuthViewModel
         private const val OTP_TIMEOUT_SECONDS = 120L
@@ -96,6 +97,11 @@ class AuthViewModel @Inject constructor(
         checkAuthState()
     }
 
+    fun clearNavigationEvent() {
+        _events.tryEmit(AuthEvent.None) // Reset to dummy event
+    }
+
+
     // Existing methods for token-based auth
     fun saveAuthData(token: String, userId: String, userType: String) {
         encryptedPreferences.apply {
@@ -112,6 +118,8 @@ class AuthViewModel @Inject constructor(
             userType = encryptedPreferences.getString("user_type")
         )
     }
+
+
 
     fun clearAuthData() {
         encryptedPreferences.clearAuthData()
@@ -254,13 +262,36 @@ class AuthViewModel @Inject constructor(
         )}
     }
 
+
+    // Debounce mechanism for navigation events
+    private var lastNavigationTime = 0L
+    private val NAVIGATION_DEBOUNCE_MS = 500L
+
     fun setUserType(userType: String) {
+        // Check if this is a duplicate request within debounce time
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastNavigationTime < NAVIGATION_DEBOUNCE_MS) {
+            logger.d(
+                tag = TAG,
+                message = "Navigation debounced",
+                additionalData = mapOf("userType" to userType)
+            )
+            return
+        }
+
+        // Update last navigation time
+        lastNavigationTime = currentTime
+
+        // Prevent repeated navigation for the same user type
+        if (userType == savedStateHandle.get<String>(KEY_USER_TYPE)) {
+            return
+        }
+
         savedStateHandle[KEY_USER_TYPE] = userType
 
         viewModelScope.launch {
             _events.emit(AuthEvent.NavigateToPhoneEntry(userType))
             try {
-                // Save user type in repository
                 authRepository.saveUserType(UserType.valueOf(userType)).collect { }
             } catch (e: Exception) {
                 logger.e(
@@ -272,8 +303,6 @@ class AuthViewModel @Inject constructor(
             }
         }
     }
-
-
     private fun checkAuthState() {
         viewModelScope.launch {
             try {
@@ -852,4 +881,5 @@ sealed class AuthEvent {
     object CodeSent : AuthEvent()
     data class NavigateToProfileSetup(val userId: String, val userType: String) : AuthEvent()
     data class NavigateToVerification(val phoneNumber: String, val verificationId: String) : AuthEvent()
+    object None : AuthEvent() // Added event
 }

@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -78,10 +79,19 @@ class EmployerProfileViewModel @Inject constructor(
 
     fun loadProfile(userId: String) {
         viewModelScope.launch {
-            try {
-                _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(isLoading = true) }
 
-                getUserProfileUseCase(userId).collect { result ->
+            getUserProfileUseCase(userId)
+                .catch { e ->
+                    handleError(
+                        AppError.UnexpectedError(
+                            message = "Failed to load profile",
+                            cause = e
+                        )
+                    )
+                    emit(ApiResult.Error(AppError.UnexpectedError("Flow collection failed")))
+                }
+                .collect { result ->
                     when (result) {
                         is ApiResult.Success -> {
                             _uiState.update {
@@ -96,14 +106,6 @@ class EmployerProfileViewModel @Inject constructor(
                         is ApiResult.Loading -> _uiState.update { it.copy(isLoading = true) }
                     }
                 }
-            } catch (e: Exception) {
-                handleError(
-                    AppError.UnexpectedError(
-                        message = "Failed to load profile",
-                        cause = e
-                    )
-                )
-            }
         }
     }
 

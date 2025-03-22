@@ -8,18 +8,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.flowWithLifecycle
 import com.example.gigwork.R
-import com.example.gigwork.presentation.navigation.Screen
 import com.example.gigwork.presentation.screens.common.ScreenScaffold
 import com.example.gigwork.presentation.viewmodels.AuthEvent
 import com.example.gigwork.presentation.viewmodels.AuthViewModel
 import com.example.gigwork.util.Constants
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun WelcomeScreen(
@@ -28,7 +30,7 @@ fun WelcomeScreen(
     viewModel: AuthViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
-    // Log component lifecycle for debugging
+    // Lifecycle logging
     DisposableEffect(Unit) {
         Log.d("WelcomeScreen", "Welcome screen mounted")
         onDispose {
@@ -36,21 +38,38 @@ fun WelcomeScreen(
         }
     }
 
-    // Collect events from AuthViewModel
-    LaunchedEffect(key1 = true) {
-        viewModel.events.collectLatest { event ->
-            when (event) {
-                is AuthEvent.NavigateToPhoneEntry -> {
-                    if (event.userType == Constants.UserType.EMPLOYEE) {
-                        onNavigateToEmployeeAuth()
-                    } else {
-                        onNavigateToEmployerAuth()
+    // Track navigation status to prevent multiple events
+    val hasNavigated = remember { mutableStateOf(false) }
+
+    // Use the lifecycle owner for proper event collection
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Collect navigation events with proper lifecycle handling
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        viewModel.events
+            .flowWithLifecycle(lifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .distinctUntilChanged()
+            .collect { event ->
+                when (event) {
+                    is AuthEvent.NavigateToPhoneEntry -> {
+                        if (!hasNavigated.value) {
+                            hasNavigated.value = true
+                            when (event.userType) {
+                                Constants.UserType.EMPLOYEE -> onNavigateToEmployeeAuth()
+                                Constants.UserType.EMPLOYER -> onNavigateToEmployerAuth()
+                                else -> Log.w("WelcomeScreen", "Unknown user type: ${event.userType}")
+                            }
+                        }
                     }
+                    else -> { /* Ignore other events */ }
                 }
-                else -> {} // Handle other events if needed
             }
-        }
     }
+
+    // Stable UI measurements
+    val buttonHeight = 56.dp
+    val logoSize = 120.dp
+    val spacingHeight = 24.dp
 
     ScreenScaffold(
         errorMessage = null,
@@ -68,16 +87,16 @@ fun WelcomeScreen(
         ) {
             Spacer(modifier = Modifier.height(48.dp))
 
-            // App Logo
+            // App Logo - optimized with fixed size
             Image(
                 painter = painterResource(id = R.drawable.app_logo),
                 contentDescription = "GigWork Logo",
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(logoSize)
                     .padding(8.dp)
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(spacingHeight))
 
             // App Title
             Text(
@@ -96,7 +115,7 @@ fun WelcomeScreen(
                 modifier = Modifier.padding(top = 8.dp, bottom = 32.dp)
             )
 
-            // Description
+            // Description Card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -131,16 +150,14 @@ fun WelcomeScreen(
             // Job Seeker Button
             Button(
                 onClick = {
-                    // We call viewModel.setUserType first, then navigate
-                    // This helps avoid potential race conditions
-                    viewModel.setUserType(Constants.UserType.EMPLOYEE)
-                    // Add a small delay to ensure the navigation doesn't happen too quickly
-                    // which might contribute to flickering
-                    onNavigateToEmployeeAuth()
+                    // Only trigger the user type selection
+                    if (!hasNavigated.value) {
+                        viewModel.setUserType(Constants.UserType.EMPLOYEE)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(buttonHeight),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
@@ -157,12 +174,14 @@ fun WelcomeScreen(
             // Employer Button
             OutlinedButton(
                 onClick = {
-                    viewModel.setUserType(Constants.UserType.EMPLOYER)
-                    onNavigateToEmployerAuth()
+                    // Only trigger the user type selection
+                    if (!hasNavigated.value) {
+                        viewModel.setUserType(Constants.UserType.EMPLOYER)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(buttonHeight),
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.primary
                 )

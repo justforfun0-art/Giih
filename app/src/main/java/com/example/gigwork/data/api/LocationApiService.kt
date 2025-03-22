@@ -1,6 +1,8 @@
 package com.example.gigwork.data.api
 
 import com.example.gigwork.data.cache.LocationCache
+import com.example.gigwork.data.models.DistrictsResponse
+import com.example.gigwork.data.models.StatesResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import retrofit2.Response
@@ -11,10 +13,10 @@ import javax.inject.Singleton
 
 interface LocationApiService {
     @GET("postoffice/states")
-    suspend fun getStatesRaw(): Response<List<String>>
+    suspend fun getStatesRaw(): Response<StatesResponse>
 
     @GET("postoffice/districts/{state}")
-    suspend fun getDistrictsRaw(@Path("state") state: String): Response<List<String>>
+    suspend fun getDistrictsRaw(@Path("state") state: String): Response<DistrictsResponse>
 }
 
 @Singleton
@@ -25,7 +27,7 @@ class LocationService @Inject constructor(
 ) {
     companion object {
         private const val STATES_CACHE_KEY = "states"
-        private const val DISTRICT_CACHE_KEY_PREFIX = "districts_"
+        private const val DISTRICT_CACHE_KEY = "districts_"
     }
 
     suspend fun getStates(): Flow<List<String>> = flow {
@@ -44,10 +46,12 @@ class LocationService @Inject constructor(
             // Make API call
             val response = api.getStatesRaw()
             if (response.isSuccessful) {
-                response.body()?.let { states ->
+                response.body()?.let { statesResponse ->
+                    // Extract just the state names
+                    val stateNames = statesResponse.states.map { it.name }
                     // Cache the result
-                    cache.put(STATES_CACHE_KEY, states)
-                    emit(states)
+                    cache.put(STATES_CACHE_KEY, stateNames)
+                    emit(stateNames)
                 } ?: throw LocationApiException.NoDataException()
             } else {
                 when (response.code()) {
@@ -69,8 +73,7 @@ class LocationService @Inject constructor(
 
     suspend fun getDistricts(state: String): Flow<List<String>> = flow {
         try {
-            val cacheKey = "$DISTRICT_CACHE_KEY_PREFIX$state"
-
+            val cacheKey = "$DISTRICT_CACHE_KEY$state"
             // Check cache first
             cache.get(cacheKey)?.let {
                 emit(it)
@@ -85,10 +88,12 @@ class LocationService @Inject constructor(
             // Make API call
             val response = api.getDistrictsRaw(state)
             if (response.isSuccessful) {
-                response.body()?.let { districts ->
+                response.body()?.let { districtsResponse ->
+                    // Extract just the state names
+                    val districtnames = districtsResponse.districts.map { it.name }
                     // Cache the result
-                    cache.put(cacheKey, districts)
-                    emit(districts)
+                    cache.put(cacheKey, districtnames)
+                    emit(districtnames)
                 } ?: throw LocationApiException.NoDataException()
             } else {
                 when (response.code()) {
